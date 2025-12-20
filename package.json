@@ -1,0 +1,57 @@
+{
+  "name": "slidecast-v2",
+  "version": "1.0.0",
+  "description": "AI-Powered Video Presentation Platform - Transform text into professional AI-narrated videos",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --hot src/server.ts",
+    "build": "bun build src/client/main.tsx --outdir dist/client && tsc --noEmit",
+    "start": "bun src/server.ts",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext .ts,.tsx",
+    "test": "bun test",
+    "db:migrate": "bun run src/db/migrate.ts"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router": "^7.0.0",
+    "@react-router/node": "^7.0.0",
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.0",
+    "pg": "^8.11.0",
+    "express": "^4.18.0",
+    "cors": "^2.8.5",
+    "jsonwebtoken": "^9.1.0",
+    "bcrypt": "^5.1.0",
+    "sharp": "^0.33.0",
+    "axios-retry": "^3.8.0",
+    "fluent-ffmpeg": "^2.1.3",
+    "elevenlabs": "^0.2.0",
+    "google-generative-ai": "^0.3.0",
+    "unsplash-js": "^7.0.0",
+    "@supabase/supabase-js": "^2.38.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/node": "^20.10.0",
+    "@types/express": "^4.17.0",
+    "@types/pg": "^8.11.0",
+    "@types/jsonwebtoken": "^9.0.0",
+    "@types/bcrypt": "^5.0.0",
+    "typescript": "^5.3.0",
+    "tailwindcss": "^4.0.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "vite": "^5.0.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.1.0",
+    "@testing-library/react": "^14.1.0",
+    "bun-types": "latest"
+  },
+  "engines": {
+    "bun": "^1.0.0"
+  }
+}
