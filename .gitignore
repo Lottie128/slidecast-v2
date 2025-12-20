@@ -1,0 +1,84 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Bun
+bun.lock*
+.bun/
+bun-cache/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+.vite/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.sublime-project
+*.sublime-workspace
+
+# Testing
+.nyc_output/
+coverage/
+.coverage
+
+# Video/Audio temp files
+tmp/
+frames/
+output/
+*.mp4
+*.webm
+*.mp3
+*.wav
+
+# OS files
+.DS_Store
+.Spotlight-V100
+.Trashes
+desktop.ini
+
+# Local development
+.env.local
+localhost_*
+
+# Package manager
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Misc
+*.pem
+*.key
+.cache/
+.turbo/
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+
+# API keys and secrets (safety net)
+**/secrets/
+**/.secrets
