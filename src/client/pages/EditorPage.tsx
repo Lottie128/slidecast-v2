@@ -1,316 +1,386 @@
-// ============================================
-// SlideCast V2 - Editor Page
-// Main slide editor interface
-// ============================================
-
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useEditorStore } from '../hooks/useEditorStore';
-import { useProjectAPI } from '../hooks/useProjectAPI';
-import { gradientPresets } from '../lib/gradients';
-import type { Slide, SlideElement } from '../../types';
+import axios from 'axios';
 
-const EditorPage: React.FC = () => {
-  const { projectId } = useParams<{ projectId: string }>();
+interface Slide {
+  id: number;
+  slide_number: number;
+  title: string;
+  content: string;
+  speaker_notes?: string;
+  background_type: string;
+  background_value: string;
+  audio_url?: string;
+}
+
+interface Project {
+  id: number;
+  title: string;
+  description: string;
+}
+
+const EditorPage = () => {
+  const { projectId } = useParams();
   const navigate = useNavigate();
-  const api = useProjectAPI();
-  
-  const {
-    project,
-    slides,
-    currentSlideId,
-    setProject,
-    setSlides,
-    setCurrentSlide,
-    addSlide,
-    updateSlide,
-    deleteSlide,
-  } = useEditorStore();
-  
+  const [project, setProject] = useState<Project | null>(null);
+  const [slides, setSlides] = useState<Slide[]>([]);
+  const [currentSlide, setCurrentSlide] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [showAddSlide, setShowAddSlide] = useState(false);
-  
-  const currentSlide = slides.find(s => s.id === currentSlideId);
-  
+  const [generating, setGenerating] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  // Slide editing state
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [speakerNotes, setSpeakerNotes] = useState('');
+  const [bgType, setBgType] = useState('color');
+  const [bgValue, setBgValue] = useState('#1e293b');
+
   useEffect(() => {
-    loadProject();
+    fetchProject();
+    fetchSlides();
   }, [projectId]);
-  
-  const loadProject = async () => {
-    if (!projectId) return;
-    
+
+  useEffect(() => {
+    if (slides[currentSlide]) {
+      const slide = slides[currentSlide];
+      setTitle(slide.title);
+      setContent(slide.content);
+      setSpeakerNotes(slide.speaker_notes || '');
+      setBgType(slide.background_type);
+      setBgValue(slide.background_value);
+    }
+  }, [currentSlide, slides]);
+
+  const fetchProject = async () => {
     try {
-      const projectData = await api.getProject(projectId);
-      const slidesData = await api.getSlides(projectId);
-      
-      setProject(projectData);
-      setSlides(slidesData);
+      const token = localStorage.getItem('accessToken');
+      const response = await axios.get(`/api/projects/${projectId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setProject(response.data.data);
     } catch (error) {
-      console.error('Failed to load project:', error);
-      navigate('/dashboard');
+      console.error('Error fetching project:', error);
+    }
+  };
+
+  const fetchSlides = async () => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await axios.get(`/api/projects/${projectId}/slides`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setSlides(response.data.data || []);
+    } catch (error) {
+      console.error('Error fetching slides:', error);
     } finally {
       setLoading(false);
     }
   };
-  
-  const handleAddSlide = async () => {
-    if (!projectId) return;
-    
-    const newSlide: Partial<Slide> = {
-      projectId,
-      order: slides.length,
-      title: `Slide ${slides.length + 1}`,
-      content: 'Click to edit content',
-      backgroundGradient: gradientPresets[Math.floor(Math.random() * gradientPresets.length)].css,
-      elements: [],
-      duration: 5.0,
-    };
-    
+
+  const saveSlide = async () => {
     try {
-      const created = await api.createSlide(newSlide);
-      addSlide(created);
-      setCurrentSlide(created.id);
-      setShowAddSlide(false);
+      const token = localStorage.getItem('accessToken');
+      const slideData = {
+        title,
+        content,
+        speaker_notes: speakerNotes,
+        background_type: bgType,
+        background_value: bgValue,
+      };
+
+      if (slides[currentSlide]) {
+        // Update existing
+        await axios.put(
+          `/api/slides/${slides[currentSlide].id}`,
+          slideData,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      } else {
+        // Create new
+        await axios.post(
+          `/api/projects/${projectId}/slides`,
+          { ...slideData, slide_number: slides.length + 1 },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      }
+      
+      fetchSlides();
     } catch (error) {
-      console.error('Failed to create slide:', error);
+      console.error('Error saving slide:', error);
+      alert('Failed to save slide');
     }
   };
-  
-  const handleDeleteSlide = async (slideId: string) => {
+
+  const addSlide = async () => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await axios.post(
+        `/api/projects/${projectId}/slides`,
+        {
+          title: 'New Slide',
+          content: 'Add your content here',
+          slide_number: slides.length + 1,
+          background_type: 'color',
+          background_value: '#1e293b',
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      fetchSlides();
+      setCurrentSlide(slides.length);
+    } catch (error) {
+      console.error('Error adding slide:', error);
+    }
+  };
+
+  const deleteSlide = async (slideId: number) => {
     if (!confirm('Delete this slide?')) return;
     
     try {
-      await api.deleteSlide(slideId);
-      deleteSlide(slideId);
+      const token = localStorage.getItem('accessToken');
+      await axios.delete(`/api/slides/${slideId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      fetchSlides();
+      if (currentSlide >= slides.length - 1) {
+        setCurrentSlide(Math.max(0, slides.length - 2));
+      }
     } catch (error) {
-      console.error('Failed to delete slide:', error);
+      console.error('Error deleting slide:', error);
     }
   };
-  
-  const handleUpdateSlideTitle = async (slideId: string, title: string) => {
+
+  const generateAudio = async (slideId: number) => {
+    setGenerating(true);
     try {
-      await api.updateSlide(slideId, { title });
-      updateSlide(slideId, { title });
-    } catch (error) {
-      console.error('Failed to update slide:', error);
-    }
-  };
-  
-  const handleGenerateAudio = async (slideId: string, text: string) => {
-    try {
-      const result = await api.generateAudio(text, 'en-US-AriaNeural', 1.0);
-      await api.updateSlide(slideId, { 
-        audioUrl: result.audioUrl,
-        audioDuration: result.duration 
-      });
-      updateSlide(slideId, { 
-        audioUrl: result.audioUrl,
-        audioDuration: result.duration 
-      });
+      const token = localStorage.getItem('accessToken');
+      await axios.post(
+        `/api/tts/generate`,
+        { slide_id: slideId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      fetchSlides();
       alert('Audio generated successfully!');
     } catch (error) {
-      console.error('Failed to generate audio:', error);
+      console.error('Error generating audio:', error);
       alert('Failed to generate audio');
+    } finally {
+      setGenerating(false);
     }
   };
-  
+
+  const exportVideo = async () => {
+    setExporting(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await axios.post(
+        `/api/export/video`,
+        { project_id: projectId },
+        { 
+          headers: { Authorization: `Bearer ${token}` },
+          responseType: 'blob',
+        }
+      );
+      
+      // Download video
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${project?.title || 'video'}.mp4`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      console.error('Error exporting video:', error);
+      alert('Failed to export video');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-12 h-12 mx-auto border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-          <p className="text-slate-400">Loading editor...</p>
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
+          <p className="text-slate-400 mt-4">Loading editor...</p>
         </div>
       </div>
     );
   }
-  
+
   return (
-    <div className="h-screen flex flex-col">
+    <div className="min-h-screen bg-slate-900 pt-16">
       {/* Top Bar */}
-      <div className="glass border-b border-slate-700 px-6 py-4 flex justify-between items-center">
-        <div className="flex items-center space-x-4">
-          <button onClick={() => navigate('/dashboard')} className="btn btn-ghost">
-            ← Back
+      <div className="bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+          >
+            <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
           </button>
-          <h1 className="text-xl font-bold text-white">{project?.name}</h1>
+          <div>
+            <h1 className="text-xl font-bold text-white">{project?.title}</h1>
+            <p className="text-sm text-slate-400">{slides.length} slides</p>
+          </div>
         </div>
-        <div className="flex items-center space-x-3">
-          <button className="btn btn-ghost">Preview</button>
-          <button className="btn btn-primary">Export Video</button>
+        
+        <div className="flex gap-3">
+          <button
+            onClick={saveSlide}
+            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg transition-colors"
+          >
+            Save
+          </button>
+          <button
+            onClick={exportVideo}
+            disabled={exporting || slides.length === 0}
+            className="px-6 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold rounded-lg transition-all disabled:opacity-50"
+          >
+            {exporting ? 'Exporting...' : 'Export Video'}
+          </button>
         </div>
       </div>
-      
-      <div className="flex-1 flex overflow-hidden">
-        {/* Slide Panel (Left) */}
-        <div className="w-64 glass border-r border-slate-700 overflow-y-auto">
+
+      <div className="flex h-[calc(100vh-120px)]">
+        {/* Slide Thumbnails */}
+        <div className="w-64 bg-slate-800 border-r border-slate-700 overflow-y-auto">
           <div className="p-4">
             <button
-              onClick={() => setShowAddSlide(true)}
-              className="w-full btn btn-primary mb-4"
+              onClick={addSlide}
+              className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition-colors mb-4 flex items-center justify-center gap-2"
             >
-              + Add Slide
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Add Slide
             </button>
             
             <div className="space-y-2">
               {slides.map((slide, index) => (
                 <div
                   key={slide.id}
-                  onClick={() => setCurrentSlide(slide.id)}
+                  onClick={() => setCurrentSlide(index)}
                   className={`p-3 rounded-lg cursor-pointer transition-all ${
-                    slide.id === currentSlideId
-                      ? 'bg-purple-600 border-2 border-purple-400'
-                      : 'bg-slate-800 hover:bg-slate-700 border-2 border-transparent'
+                    currentSlide === index
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-white">Slide {index + 1}</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteSlide(slide.id);
-                      }}
-                      className="text-red-400 hover:text-red-300 text-xs"
-                    >
-                      ×
-                    </button>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-semibold">Slide {index + 1}</span>
+                    {slide.audio_url && (
+                      <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded">Audio</span>
+                    )}
                   </div>
-                  <div
-                    className="w-full h-20 rounded-md"
-                    style={{ background: slide.backgroundGradient }}
-                  ></div>
-                  <p className="text-xs text-slate-400 mt-2 truncate">{slide.title}</p>
+                  <p className="text-xs opacity-75 line-clamp-2">{slide.title}</p>
                 </div>
               ))}
             </div>
           </div>
         </div>
-        
-        {/* Canvas (Center) */}
-        <div className="flex-1 flex items-center justify-center p-8 bg-slate-900">
-          {currentSlide ? (
-            <div className="w-full max-w-4xl">
-              <div
-                className="w-full aspect-video rounded-xl shadow-2xl flex flex-col items-center justify-center p-12"
-                style={{ background: currentSlide.backgroundGradient }}
-              >
-                <h2 className="text-5xl font-bold text-white mb-6 text-center">
-                  {currentSlide.title}
-                </h2>
-                <p className="text-2xl text-white/90 text-center">
-                  {currentSlide.content}
-                </p>
-              </div>
+
+        {/* Main Editor */}
+        <div className="flex-1 flex flex-col">
+          {/* Preview */}
+          <div className="flex-1 bg-slate-800 p-8 overflow-auto">
+            <div 
+              className="max-w-4xl mx-auto aspect-video rounded-xl shadow-2xl flex flex-col justify-center p-12"
+              style={{
+                background: bgType === 'gradient'
+                  ? bgValue
+                  : bgType === 'image'
+                  ? `url(${bgValue}) center/cover`
+                  : bgValue,
+              }}
+            >
+              <h2 className="text-5xl font-bold text-white mb-6 drop-shadow-lg">{title}</h2>
+              <p className="text-2xl text-white/90 leading-relaxed drop-shadow">{content}</p>
             </div>
-          ) : (
-            <div className="text-center text-slate-500">
-              <p>No slide selected</p>
-              <p className="text-sm mt-2">Create a slide to get started</p>
-            </div>
-          )}
-        </div>
-        
-        {/* Property Panel (Right) */}
-        <div className="w-80 glass border-l border-slate-700 overflow-y-auto p-6">
-          {currentSlide ? (
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-semibold text-white mb-4">Slide Properties</h3>
-              </div>
-              
+          </div>
+
+          {/* Editor Panel */}
+          <div className="h-96 bg-slate-900 border-t border-slate-700 p-6 overflow-y-auto">
+            <div className="max-w-4xl mx-auto grid grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Title</label>
                 <input
                   type="text"
-                  value={currentSlide.title}
-                  onChange={(e) => handleUpdateSlideTitle(currentSlide.id, e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Content</label>
-                <textarea
-                  value={currentSlide.content}
-                  onChange={(e) => updateSlide(currentSlide.id, { content: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm resize-none"
-                  rows={4}
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:ring-2 focus:ring-purple-500"
                 />
               </div>
               
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Background</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {gradientPresets.slice(0, 9).map((gradient) => (
-                    <button
-                      key={gradient.id}
-                      onClick={() => updateSlide(currentSlide.id, { backgroundGradient: gradient.css })}
-                      className="w-full h-12 rounded-lg border-2 border-transparent hover:border-purple-400 transition-all"
-                      style={{ background: gradient.css }}
-                      title={gradient.name}
-                    />
-                  ))}
+                <div className="flex gap-2">
+                  <select
+                    value={bgType}
+                    onChange={(e) => setBgType(e.target.value)}
+                    className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="color">Color</option>
+                    <option value="gradient">Gradient</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={bgValue}
+                    onChange={(e) => setBgValue(e.target.value)}
+                    className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:ring-2 focus:ring-purple-500"
+                    placeholder="#1e293b or linear-gradient(...)"
+                  />
                 </div>
               </div>
               
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Audio</label>
-                {currentSlide.audioUrl ? (
-                  <div className="bg-slate-800 rounded-lg p-3">
-                    <audio controls className="w-full">
-                      <source src={currentSlide.audioUrl} type="audio/mpeg" />
-                    </audio>
-                    <p className="text-xs text-slate-400 mt-2">Duration: {currentSlide.audioDuration?.toFixed(1)}s</p>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => handleGenerateAudio(currentSlide.id, currentSlide.content)}
-                    className="w-full btn btn-secondary text-sm"
-                  >
-                    Generate Audio (TTS)
-                  </button>
-                )}
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-slate-300 mb-2">Content</label>
+                <textarea
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:ring-2 focus:ring-purple-500 resize-none"
+                  rows={3}
+                />
               </div>
               
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Duration</label>
-                <input
-                  type="number"
-                  value={currentSlide.duration}
-                  onChange={(e) => updateSlide(currentSlide.id, { duration: parseFloat(e.target.value) })}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
-                  min="1"
-                  max="60"
-                  step="0.5"
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-slate-300 mb-2">Speaker Notes (for AI voice)</label>
+                <textarea
+                  value={speakerNotes}
+                  onChange={(e) => setSpeakerNotes(e.target.value)}
+                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:ring-2 focus:ring-purple-500 resize-none"
+                  rows={2}
+                  placeholder="What the AI voice should say..."
                 />
-                <p className="text-xs text-slate-400 mt-1">Seconds</p>
               </div>
-            </div>
-          ) : (
-            <div className="text-center text-slate-500 mt-8">
-              <p>Select a slide to edit properties</p>
-            </div>
-          )}
-        </div>
-      </div>
-      
-      {/* Add Slide Modal */}
-      {showAddSlide && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="glass rounded-2xl p-8 max-w-md w-full m-4">
-            <h2 className="text-2xl font-bold text-white mb-4">Add New Slide</h2>
-            <p className="text-slate-400 mb-6">A new slide will be added to your presentation</p>
-            <div className="flex space-x-3">
-              <button onClick={() => setShowAddSlide(false)} className="flex-1 btn btn-ghost">
-                Cancel
-              </button>
-              <button onClick={handleAddSlide} className="flex-1 btn btn-primary">
-                Add Slide
-              </button>
+              
+              <div className="col-span-2 flex gap-3">
+                <button
+                  onClick={() => slides[currentSlide] && generateAudio(slides[currentSlide].id)}
+                  disabled={generating || !slides[currentSlide]}
+                  className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {generating ? 'Generating...' : 'Generate Audio'}
+                </button>
+                
+                <button
+                  onClick={() => slides[currentSlide] && deleteSlide(slides[currentSlide].id)}
+                  disabled={!slides[currentSlide]}
+                  className="px-6 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 font-semibold rounded-lg transition-colors disabled:opacity-50"
+                >
+                  Delete Slide
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 };
