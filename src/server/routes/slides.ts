@@ -1,126 +1,182 @@
-import { 
-  createSlide, 
-  getSlidesByProjectId, 
-  getSlideById,
-  updateSlide, 
-  deleteSlide 
+// ============================================
+// SlideCast V2 - Slide Routes
+// ============================================
+
+import { Router } from 'express';
+import { authenticateToken, type AuthRequest } from '../middleware/auth';
+import {
+  createSlide,
+  getSlidesByProjectId,
+  updateSlide,
+  deleteSlide,
+  reorderSlides,
+  getProjectById,
 } from '../db/queries';
-import type { Slide, ApiResponse } from '../../types';
+import type { ApiResponse, Slide } from '../../types';
 
-export const createNewSlide = async (
-  projectId: string,
-  order: number,
-  title: string,
-  content: string
-): Promise<ApiResponse<Slide>> => {
-  try {
-    const slide = await createSlide(projectId, order, title, content);
-    return { 
-      success: true, 
-      data: slide 
-    };
-  } catch (error: any) {
-    console.error('Create slide error:', error);
-    return { 
-      success: false, 
-      error: 'Failed to create slide' 
-    };
-  }
-};
+const router = Router();
 
-export const getSlides = async (
-  projectId: string
-): Promise<ApiResponse<Slide[]>> => {
-  try {
-    const slides = await getSlidesByProjectId(projectId);
-    return { 
-      success: true, 
-      data: slides 
-    };
-  } catch (error: any) {
-    console.error('Get slides error:', error);
-    return { 
-      success: false, 
-      error: 'Failed to fetch slides' 
-    };
-  }
-};
+// All routes require authentication
+router.use(authenticateToken);
 
-export const getSlide = async (
-  slideId: string
-): Promise<ApiResponse<Slide>> => {
+/**
+ * POST /api/slides
+ * Create a new slide
+ */
+router.post('/', async (req: AuthRequest, res) => {
   try {
-    const slide = await getSlideById(slideId);
+    const userId = req.userId!;
+    const slideData = req.body;
     
-    if (!slide) {
-      return { 
-        success: false, 
-        error: 'Slide not found' 
-      };
+    // Verify project ownership
+    const project = await getProjectById(slideData.projectId);
+    if (!project || (project as any).user_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied',
+      } as ApiResponse);
     }
     
-    return { 
-      success: true, 
-      data: slide 
-    };
-  } catch (error: any) {
-    console.error('Get slide error:', error);
-    return { 
-      success: false, 
-      error: 'Failed to fetch slide' 
-    };
-  }
-};
-
-export const updateSlideDetails = async (
-  slideId: string,
-  updates: Partial<Slide>
-): Promise<ApiResponse<Slide>> => {
-  try {
-    const slide = await updateSlide(slideId, updates);
+    const slide = await createSlide(slideData);
     
-    if (!slide) {
-      return { 
-        success: false, 
-        error: 'Slide not found' 
-      };
-    }
-    
-    return {
+    res.status(201).json({
       success: true,
       data: slide,
-    };
+    } as ApiResponse<Slide>);
   } catch (error: any) {
-    console.error('Update slide error:', error);
-    return { 
-      success: false, 
-      error: 'Failed to update slide' 
-    };
+    console.error('Create slide error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    } as ApiResponse);
   }
-};
+});
 
-export const deleteSlideById = async (
-  slideId: string
-): Promise<ApiResponse> => {
+/**
+ * GET /api/slides/project/:projectId
+ * Get all slides for a project
+ */
+router.get('/project/:projectId', async (req: AuthRequest, res) => {
   try {
-    const result = await deleteSlide(slideId);
+    const userId = req.userId!;
+    const projectId = req.params.projectId;
     
-    if (!result) {
-      return { 
-        success: false, 
-        error: 'Slide not found' 
-      };
+    // Verify project ownership
+    const project = await getProjectById(projectId);
+    if (!project || (project as any).user_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied',
+      } as ApiResponse);
     }
     
-    return { 
-      success: true, 
-      message: 'Slide deleted successfully' 
-    };
+    const slides = await getSlidesByProjectId(projectId);
+    
+    res.json({
+      success: true,
+      data: slides,
+    } as ApiResponse<Slide[]>);
+  } catch (error: any) {
+    console.error('Get slides error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    } as ApiResponse);
+  }
+});
+
+/**
+ * PATCH /api/slides/:id
+ * Update a slide
+ */
+router.patch('/:id', async (req: AuthRequest, res) => {
+  try {
+    const slideId = req.params.id;
+    const updates = req.body;
+    
+    const updated = await updateSlide(slideId, updates);
+    
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        error: 'Slide not found',
+      } as ApiResponse);
+    }
+    
+    res.json({
+      success: true,
+      data: updated,
+    } as ApiResponse<Slide>);
+  } catch (error: any) {
+    console.error('Update slide error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    } as ApiResponse);
+  }
+});
+
+/**
+ * DELETE /api/slides/:id
+ * Delete a slide
+ */
+router.delete('/:id', async (req: AuthRequest, res) => {
+  try {
+    const slideId = req.params.id;
+    
+    const deleted = await deleteSlide(slideId);
+    
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        error: 'Slide not found',
+      } as ApiResponse);
+    }
+    
+    res.json({
+      success: true,
+      message: 'Slide deleted successfully',
+    } as ApiResponse);
   } catch (error: any) {
     console.error('Delete slide error:', error);
-    return { 
-      success: false, 
-      error: 'Failed to delete slide' 
-    };
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    } as ApiResponse);
   }
-};
+});
+
+/**
+ * POST /api/slides/reorder
+ * Reorder slides in a project
+ */
+router.post('/reorder', async (req: AuthRequest, res) => {
+  try {
+    const userId = req.userId!;
+    const { projectId, slideIds } = req.body;
+    
+    // Verify project ownership
+    const project = await getProjectById(projectId);
+    if (!project || (project as any).user_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied',
+      } as ApiResponse);
+    }
+    
+    await reorderSlides(projectId, slideIds);
+    
+    res.json({
+      success: true,
+      message: 'Slides reordered successfully',
+    } as ApiResponse);
+  } catch (error: any) {
+    console.error('Reorder slides error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    } as ApiResponse);
+  }
+});
+
+export default router;
