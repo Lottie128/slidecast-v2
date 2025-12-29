@@ -1,124 +1,169 @@
-// ============================================
-// SlideCast V2 - Dashboard Page
-// ============================================
+import React, { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useProjectAPI } from '../hooks/useProjectAPI';
-import type { Project } from '../../types';
+interface Project {
+  id: number;
+  title: string;
+  description: string;
+  thumbnail_url?: string;
+  created_at: string;
+  updated_at: string;
+}
 
-const DashboardPage: React.FC = () => {
+const DashboardPage = () => {
   const navigate = useNavigate();
-  const api = useProjectAPI();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newProjectName, setNewProjectName] = useState('');
-  const [newProjectDesc, setNewProjectDesc] = useState('');
-  
+  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  const [newProjectTitle, setNewProjectTitle] = useState('');
+  const [newProjectDescription, setNewProjectDescription] = useState('');
+  const [creating, setCreating] = useState(false);
+
   useEffect(() => {
-    loadProjects();
+    fetchProjects();
   }, []);
-  
-  const loadProjects = async () => {
+
+  const fetchProjects = async () => {
     try {
-      const data = await api.getProjects();
-      setProjects(data.items || []);
+      const token = localStorage.getItem('accessToken');
+      const response = await axios.get('/api/projects', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setProjects(response.data.data || []);
     } catch (error) {
-      console.error('Failed to load projects:', error);
+      console.error('Error fetching projects:', error);
     } finally {
       setLoading(false);
     }
   };
-  
-  const handleCreateProject = async () => {
-    if (!newProjectName.trim()) return;
+
+  const createProject = async () => {
+    if (!newProjectTitle.trim()) return;
     
+    setCreating(true);
     try {
-      const project = await api.createProject(newProjectName, newProjectDesc);
-      navigate(`/editor/${project.id}`);
+      const token = localStorage.getItem('accessToken');
+      const response = await axios.post(
+        '/api/projects',
+        {
+          title: newProjectTitle,
+          description: newProjectDescription,
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      
+      if (response.data.success) {
+        navigate(`/editor/${response.data.data.id}`);
+      }
     } catch (error) {
-      console.error('Failed to create project:', error);
+      console.error('Error creating project:', error);
       alert('Failed to create project');
+    } finally {
+      setCreating(false);
     }
   };
-  
-  const handleDeleteProject = async (id: string) => {
+
+  const deleteProject = async (id: number) => {
     if (!confirm('Are you sure you want to delete this project?')) return;
     
     try {
-      await api.deleteProject(id);
-      setProjects(projects.filter(p => p.id !== id));
+      const token = localStorage.getItem('accessToken');
+      await axios.delete(`/api/projects/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      fetchProjects();
     } catch (error) {
-      console.error('Failed to delete project:', error);
+      console.error('Error deleting project:', error);
     }
   };
-  
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <div className="w-12 h-12 mx-auto border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-          <p className="text-slate-400">Loading projects...</p>
-        </div>
-      </div>
-    );
-  }
-  
+
   return (
-    <div className="min-h-screen py-8 px-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 pt-20 pb-12 px-4">
       <div className="max-w-7xl mx-auto">
+        {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-white mb-2">My Projects</h1>
-            <p className="text-slate-400">Create and manage your video presentations</p>
+            <h1 className="text-4xl font-bold text-white mb-2">My Projects</h1>
+            <p className="text-slate-400">Create stunning AI-narrated video presentations</p>
           </div>
           <button
-            onClick={() => setShowCreateModal(true)}
-            className="btn btn-primary flex items-center space-x-2"
+            onClick={() => setShowNewProjectModal(true)}
+            className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 flex items-center gap-2"
           >
-            <span>+</span>
-            <span>New Project</span>
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            New Project
           </button>
         </div>
-        
-        {projects.length === 0 ? (
-          <div className="glass rounded-2xl p-12 text-center">
-            <div className="w-20 h-20 mx-auto bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl mb-4 opacity-50"></div>
-            <h3 className="text-xl font-semibold text-white mb-2">No projects yet</h3>
-            <p className="text-slate-400 mb-6">Create your first video presentation project</p>
-            <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">
+
+        {/* Projects Grid */}
+        {loading ? (
+          <div className="text-center py-20">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
+            <p className="text-slate-400 mt-4">Loading projects...</p>
+          </div>
+        ) : projects.length === 0 ? (
+          <div className="text-center py-20">
+            <div className="inline-block p-8 bg-slate-800/50 rounded-full mb-6">
+              <svg className="w-16 h-16 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
+              </svg>
+            </div>
+            <h3 className="text-2xl font-semibold text-white mb-2">No projects yet</h3>
+            <p className="text-slate-400 mb-6">Create your first AI-powered video presentation</p>
+            <button
+              onClick={() => setShowNewProjectModal(true)}
+              className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
+            >
               Create Project
             </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {projects.map((project) => (
-              <div key={project.id} className="glass rounded-xl p-6 hover:border-purple-500 transition-all cursor-pointer group">
-                <div onClick={() => navigate(`/editor/${project.id}`)}>
-                  <div className="w-full h-40 bg-gradient-to-br from-purple-600 to-pink-600 rounded-lg mb-4 flex items-center justify-center">
-                    <span className="text-6xl opacity-50">🎥</span>
-                  </div>
+              <div
+                key={project.id}
+                className="bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 rounded-xl overflow-hidden hover:border-purple-500/50 transition-all duration-200 hover:shadow-xl hover:shadow-purple-500/10 group"
+              >
+                {/* Thumbnail */}
+                <div className="aspect-video bg-gradient-to-br from-purple-900/50 to-pink-900/50 flex items-center justify-center">
+                  {project.thumbnail_url ? (
+                    <img src={project.thumbnail_url} alt={project.title} className="w-full h-full object-cover" />
+                  ) : (
+                    <svg className="w-16 h-16 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  )}
+                </div>
+
+                {/* Content */}
+                <div className="p-5">
                   <h3 className="text-lg font-semibold text-white mb-2 group-hover:text-purple-400 transition-colors">
-                    {project.name}
+                    {project.title}
                   </h3>
                   <p className="text-slate-400 text-sm mb-4 line-clamp-2">
                     {project.description || 'No description'}
                   </p>
-                  <p className="text-xs text-slate-500">
-                    Updated {new Date(project.updatedAt).toLocaleDateString()}
-                  </p>
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span>{new Date(project.created_at).toLocaleDateString()}</span>
+                  </div>
                 </div>
-                <div className="mt-4 pt-4 border-t border-slate-700 flex justify-between">
-                  <button
-                    onClick={() => navigate(`/editor/${project.id}`)}
-                    className="btn btn-ghost text-sm"
+
+                {/* Actions */}
+                <div className="p-4 bg-slate-900/50 border-t border-slate-700/50 flex gap-2">
+                  <Link
+                    to={`/editor/${project.id}`}
+                    className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-lg text-center transition-colors"
                   >
                     Edit
-                  </button>
+                  </Link>
                   <button
-                    onClick={() => handleDeleteProject(project.id)}
-                    className="btn btn-ghost text-sm text-red-400 hover:text-red-300"
+                    onClick={() => deleteProject(project.id)}
+                    className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 text-sm font-semibold rounded-lg transition-colors"
                   >
                     Delete
                   </button>
@@ -128,52 +173,56 @@ const DashboardPage: React.FC = () => {
           </div>
         )}
       </div>
-      
-      {/* Create Project Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="glass rounded-2xl p-8 max-w-md w-full">
+
+      {/* New Project Modal */}
+      {showNewProjectModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 max-w-md w-full">
             <h2 className="text-2xl font-bold text-white mb-6">Create New Project</h2>
+            
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Project Name</label>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Project Title</label>
                 <input
                   type="text"
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-white"
+                  value={newProjectTitle}
+                  onChange={(e) => setNewProjectTitle(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
                   placeholder="My Awesome Presentation"
                   autoFocus
                 />
               </div>
+              
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Description (Optional)</label>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Description (optional)</label>
                 <textarea
-                  value={newProjectDesc}
-                  onChange={(e) => setNewProjectDesc(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-white resize-none"
-                  rows={3}
+                  value={newProjectDescription}
+                  onChange={(e) => setNewProjectDescription(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
                   placeholder="Brief description of your project"
+                  rows={3}
                 />
               </div>
             </div>
-            <div className="flex space-x-3 mt-6">
+
+            <div className="flex gap-3 mt-6">
               <button
                 onClick={() => {
-                  setShowCreateModal(false);
-                  setNewProjectName('');
-                  setNewProjectDesc('');
+                  setShowNewProjectModal(false);
+                  setNewProjectTitle('');
+                  setNewProjectDescription('');
                 }}
-                className="flex-1 btn btn-ghost"
+                className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg transition-colors"
+                disabled={creating}
               >
                 Cancel
               </button>
               <button
-                onClick={handleCreateProject}
-                disabled={!newProjectName.trim()}
-                className="flex-1 btn btn-primary"
+                onClick={createProject}
+                disabled={creating || !newProjectTitle.trim()}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Create
+                {creating ? 'Creating...' : 'Create'}
               </button>
             </div>
           </div>
