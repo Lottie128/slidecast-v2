@@ -24,17 +24,19 @@ router.use(authenticateToken);
  */
 router.post('/', async (req: AuthRequest, res) => {
   try {
-    const { name, description } = req.body;
+    const { title, name, description } = req.body;
     const userId = req.userId!;
     
-    if (!name) {
+    const projectName = title || name; // Accept both title and name
+    
+    if (!projectName) {
       return res.status(400).json({
         success: false,
-        error: 'Project name is required',
+        error: 'Project title is required',
       } as ApiResponse);
     }
     
-    const project = await createProject(userId, name, description);
+    const project = await createProject(userId, projectName, description);
     
     res.status(201).json({
       success: true,
@@ -57,19 +59,21 @@ router.get('/', async (req: AuthRequest, res) => {
   try {
     const userId = req.userId!;
     const page = parseInt(req.query.page as string) || 1;
-    const pageSize = parseInt(req.query.pageSize as string) || 20;
+    const pageSize = parseInt(req.query.pageSize as string) || 100;
     
     const result = await getProjectsByUserId(userId, page, pageSize);
     
+    // Return the projects array directly
     res.json({
       success: true,
-      data: result,
+      data: result.projects || [],
     } as ApiResponse);
   } catch (error: any) {
     console.error('Get projects error:', error);
     res.status(500).json({
       success: false,
       error: error.message,
+      data: [],
     } as ApiResponse);
   }
 });
