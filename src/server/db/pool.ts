@@ -1,43 +1,42 @@
-// PostgreSQL connection pool
-import pg from 'pg';
-import { CONFIG } from '../config.js';
+// ============================================
+// SlideCast V2 - Database Connection Pool
+// ============================================
 
-const { Pool } = pg;
+import pkg from 'pg';
+const { Pool } = pkg;
+import config from '../config';
 
-export const pool = new Pool({
-  connectionString: CONFIG.DATABASE_URL,
-  ssl: CONFIG.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 20,
+const pool = new Pool({
+  host: config.database.host,
+  port: config.database.port,
+  database: config.database.name,
+  user: config.database.user,
+  password: config.database.password,
+  max: config.database.maxConnections,
+  ssl: config.database.ssl ? { rejectUnauthorized: false } : false,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 5000,
 });
 
 // Test connection
 pool.on('connect', () => {
-  console.log('✅ Database connected');
+  console.log('✅ Database connected successfully');
 });
 
 pool.on('error', (err) => {
-  console.error('❌ Unexpected database error:', err);
+  console.error('❌ Database connection error:', err);
   process.exit(-1);
 });
 
-// Helper function for transactions
-export async function withTransaction<T>(
-  callback: (client: pg.PoolClient) => Promise<T>
-): Promise<T> {
-  const client = await pool.connect();
+// Health check
+export const checkDatabaseHealth = async (): Promise<boolean> => {
   try {
-    await client.query('BEGIN');
-    const result = await callback(client);
-    await client.query('COMMIT');
-    return result;
+    const result = await pool.query('SELECT NOW()');
+    return !!result.rows[0];
   } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
+    console.error('Database health check failed:', error);
+    return false;
   }
-}
+};
 
 export default pool;
