@@ -15,6 +15,7 @@ const DashboardPage = () => {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
@@ -30,9 +31,21 @@ const DashboardPage = () => {
       const response = await axios.get('/api/projects', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setProjects(response.data.data || []);
-    } catch (error) {
+      
+      console.log('Projects response:', response.data);
+      
+      // Handle different response structures
+      if (response.data.success && Array.isArray(response.data.data)) {
+        setProjects(response.data.data);
+      } else if (Array.isArray(response.data)) {
+        setProjects(response.data);
+      } else {
+        setProjects([]);
+      }
+    } catch (error: any) {
       console.error('Error fetching projects:', error);
+      setError(error.response?.data?.error || 'Failed to load projects');
+      setProjects([]);
     } finally {
       setLoading(false);
     }
@@ -55,12 +68,14 @@ const DashboardPage = () => {
         }
       );
       
+      console.log('Create project response:', response.data);
+      
       if (response.data.success) {
         navigate(`/editor/${response.data.data.id}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating project:', error);
-      alert('Failed to create project');
+      alert(error.response?.data?.error || 'Failed to create project');
     } finally {
       setCreating(false);
     }
@@ -75,8 +90,9 @@ const DashboardPage = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       fetchProjects();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting project:', error);
+      alert(error.response?.data?.error || 'Failed to delete project');
     }
   };
 
@@ -99,6 +115,13 @@ const DashboardPage = () => {
             New Project
           </button>
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/50 rounded-lg text-red-400">
+            {error}
+          </div>
+        )}
 
         {/* Projects Grid */}
         {loading ? (
