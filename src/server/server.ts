@@ -1,20 +1,36 @@
-import express, { Request, Response } from 'express';
-import cors from 'cors';
-import { env } from './config';
-import { authMiddleware, AuthRequest } from './middleware/auth';
+// ============================================
+// SlideCast V2 - Express Server
+// ============================================
 
-// Import route handlers
-import * as authRoutes from './routes/auth';
-import * as projectRoutes from './routes/projects';
-import * as slideRoutes from './routes/slides';
-import * as videoRoutes from './routes/video';
+import express from 'express';
+import cors from 'cors';
+import { config } from './config';
+import { checkDatabaseHealth } from './db/pool';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Import routes
+import authRoutes from './routes/auth';
+import projectRoutes from './routes/projects';
+import slideRoutes from './routes/slides';
+import ttsRoutes from './routes/tts';
+import exportRoutes from './routes/export';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// Middleware
-app.use(cors());
+// ============================================
+// MIDDLEWARE
+// ============================================
+
+app.use(cors(config.cors));
 app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Serve static files from storage
+app.use('/storage', express.static(path.join(process.cwd(), config.storage.basePath)));
 
 // Request logging
 app.use((req, res, next) => {
@@ -22,129 +38,57 @@ app.use((req, res, next) => {
   next();
 });
 
+// ============================================
+// ROUTES
+// ============================================
+
 // Health check
-app.get('/api/health', (req: Request, res: Response) => {
-  res.json({ 
-    status: 'ok', 
+app.get('/api/health', async (req, res) => {
+  const dbHealthy = await checkDatabaseHealth();
+  res.json({
+    success: true,
+    status: 'ok',
     timestamp: new Date().toISOString(),
-    env: env.NODE_ENV,
+    database: dbHealthy ? 'connected' : 'disconnected',
   });
 });
 
-// Auth Routes (Public)
-app.post('/api/auth/register', async (req: Request, res: Response) => {
-  const result = await authRoutes.register(req.body);
-  res.status(result.success ? 201 : 400).json(result);
-});
-
-app.post('/api/auth/login', async (req: Request, res: Response) => {
-  const result = await authRoutes.login(req.body);
-  res.status(result.success ? 200 : 401).json(result);
-});
-
-// Projects Routes (Protected)
-app.post('/api/projects', authMiddleware, async (req: AuthRequest, res: Response) => {
-  const result = await projectRoutes.createNewProject(
-    req.userId!,
-    req.body.title,
-    req.body.description,
-    req.body.design
-  );
-  res.status(result.success ? 201 : 400).json(result);
-});
-
-app.get('/api/projects', authMiddleware, async (req: AuthRequest, res: Response) => {
-  const page = Number(req.query.page) || 1;
-  const pageSize = Number(req.query.pageSize) || 10;
-  const result = await projectRoutes.listUserProjects(req.userId!, page, pageSize);
-  res.json(result);
-});
-
-app.get('/api/projects/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
-  const result = await projectRoutes.getProject(req.params.id);
-  res.json(result);
-});
-
-app.put('/api/projects/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
-  const result = await projectRoutes.updateProjectDetails(req.params.id, req.body);
-  res.json(result);
-});
-
-app.delete('/api/projects/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
-  const result = await projectRoutes.deleteProjectById(req.params.id);
-  res.json(result);
-});
-
-// Slides Routes (Protected)
-app.post('/api/projects/:projectId/slides', authMiddleware, async (req: AuthRequest, res: Response) => {
-  const result = await slideRoutes.createNewSlide(
-    req.params.projectId,
-    req.body.order,
-    req.body.title,
-    req.body.content
-  );
-  res.status(result.success ? 201 : 400).json(result);
-});
-
-app.get('/api/projects/:projectId/slides', authMiddleware, async (req: AuthRequest, res: Response) => {
-  const result = await slideRoutes.getSlides(req.params.projectId);
-  res.json(result);
-});
-
-app.get('/api/slides/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
-  const result = await slideRoutes.getSlide(req.params.id);
-  res.json(result);
-});
-
-app.put('/api/slides/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
-  const result = await slideRoutes.updateSlideDetails(req.params.id, req.body);
-  res.json(result);
-});
-
-app.delete('/api/slides/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
-  const result = await slideRoutes.deleteSlideById(req.params.id);
-  res.json(result);
-});
-
-// Video Generation Routes (Protected)
-app.post('/api/projects/:projectId/generate-video', authMiddleware, async (req: AuthRequest, res: Response) => {
-  const result = await videoRoutes.initiateVideoGeneration(req.body);
-  res.status(result.success ? 202 : 400).json(result);
-});
-
-app.get('/api/projects/:projectId/video-progress', authMiddleware, async (req: AuthRequest, res: Response) => {
-  const result = await videoRoutes.getVideoProgress(req.params.projectId);
-  res.json(result);
-});
+// API routes
+app.use('/api/auth', authRoutes);
+app.use('/api/projects', projectRoutes);
+app.use('/api/slides', slideRoutes);
+app.use('/api/tts', ttsRoutes);
+app.use('/api/export', exportRoutes);
 
 // 404 handler
-app.use((req: Request, res: Response) => {
-  res.status(404).json({ 
-    success: false, 
-    error: 'Route not found' 
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: 'Endpoint not found',
+    path: req.path,
   });
 });
 
-// Error handling middleware
-app.use((err: any, req: Request, res: Response, next: any) => {
-  console.error('Error:', err);
-  res.status(500).json({ 
-    success: false, 
-    error: env.NODE_ENV === 'development' ? err.message : 'Internal server error' 
+// Error handler
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Server error:', err);
+  res.status(err.status || 500).json({
+    success: false,
+    error: err.message || 'Internal server error',
   });
 });
 
-// Start server
-const PORT = env.PORT;
+// ============================================
+// START SERVER
+// ============================================
+
+const PORT = config.port;
+
 app.listen(PORT, () => {
-  console.log('\n🎬 ==========================================');
-  console.log('   SlideCast V2 - AI Video Presentations');
-  console.log('==========================================\n');
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📝 API Docs: http://localhost:${PORT}/api`);
-  console.log(`🏥 Health: http://localhost:${PORT}/api/health`);
-  console.log(`🌍 Environment: ${env.NODE_ENV}`);
-  console.log('\n==========================================\n');
+  console.log(`\n🚀 SlideCast V2 Server running!`);
+  console.log(`📍 Port: ${PORT}`);
+  console.log(`🌍 Environment: ${config.nodeEnv}`);
+  console.log(`🔗 Health: http://localhost:${PORT}/api/health\n`);
 });
 
 export default app;

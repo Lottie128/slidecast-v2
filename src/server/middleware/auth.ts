@@ -1,52 +1,74 @@
+// ============================================
+// SlideCast V2 - Authentication Middleware
+// ============================================
+
 import jwt from 'jsonwebtoken';
-import { Request, Response, NextFunction } from 'express';
-import { env } from '../config';
+import type { Request, Response, NextFunction } from 'express';
+import config from '../config';
+import { findUserById } from '../db/queries';
+import type { User } from '../../types';
 
 export interface AuthRequest extends Request {
+  user?: User;
   userId?: string;
 }
 
-export const verifyToken = (token: string) => {
-  try {
-    return jwt.verify(token, env.JWT_SECRET) as { userId: string };
-  } catch (error) {
-    return null;
-  }
-};
-
-export const generateToken = (userId: string) => {
-  return jwt.sign({ userId }, env.JWT_SECRET, {
-    expiresIn: env.JWT_EXPIRE,
-  });
-};
-
-export const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
+/**
+ * Verify JWT token and attach user to request
+ */
+export const authenticateToken = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     const authHeader = req.headers.authorization;
+    const token = authHeader?.split(' ')[1]; // Bearer TOKEN
     
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!token) {
       return res.status(401).json({ 
         success: false, 
-        error: 'Unauthorized: No token provided' 
+        error: 'Access token required' 
       });
     }
-
-    const token = authHeader.slice(7);
-    const decoded = verifyToken(token);
-
-    if (!decoded) {
+    
+    const decoded = jwt.verify(token, config.jwt.secret) as { userId: string };
+    
+    const user = await findUserById(decoded.userId);
+    
+    if (!user) {
       return res.status(401).json({ 
         success: false, 
-        error: 'Unauthorized: Invalid token' 
+        error: 'User not found' 
       });
     }
-
-    req.userId = decoded.userId;
+    
+    req.user = user;
+    req.userId = user.id;
     next();
   } catch (error) {
-    return res.status(401).json({ 
+    return res.status(403).json({ 
       success: false, 
-      error: 'Unauthorized: Authentication failed' 
+      error: 'Invalid or expired token' 
     });
   }
+};
+
+/**
+ * Generate JWT tokens
+ */
+export const generateTokens = (userId: string) => {
+  const accessToken = jwt.sign(
+    { userId },
+    config.jwt.secret,
+    { expiresIn: config.jwt.expiresIn }
+  );
+  
+  const refreshToken = jwt.sign(
+    { userId, type: 'refresh' },
+    config.jwt.secret,
+    { expiresIn: config.jwt.refreshExpiresIn }
+  );
+  
+  return { accessToken, refreshToken };
 };

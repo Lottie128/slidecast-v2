@@ -15,7 +15,7 @@ export default defineConfig({
       '@components': path.resolve(__dirname, './src/client/components'),
       '@pages': path.resolve(__dirname, './src/client/pages'),
       '@hooks': path.resolve(__dirname, './src/client/hooks'),
-      '@utils': path.resolve(__dirname, './src/client/utils'),
+      '@lib': path.resolve(__dirname, './src/client/lib'),
       '@types': path.resolve(__dirname, './src/types'),
     },
   },
@@ -23,7 +23,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/storage': {
+        target: 'http://localhost:3001',
         changeOrigin: true,
       },
     },
@@ -31,10 +35,11 @@ export default defineConfig({
   build: {
     outDir: 'dist/client',
     sourcemap: true,
+    emptyOutDir: true,
     rollupOptions: {
       output: {
         manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router'],
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
         },
       },
     },

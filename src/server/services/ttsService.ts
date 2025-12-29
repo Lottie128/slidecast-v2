@@ -1,154 +1,125 @@
-// EdgeTTS Service for text-to-speech generation
-import axios from 'axios';
-import { CONFIG } from '../config.js';
-import type { TTSRequest, TTSResponse, TTSVoice } from '../../types/index.js';
-import fs from 'fs/promises';
+// ============================================
+// SlideCast V2 - Text-to-Speech Service
+// EdgeTTS Integration
+// ============================================
+
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import { promises as fs } from 'fs';
 import path from 'path';
-import { randomUUID } from 'crypto';
+import config from '../config';
+import type { TTSRequest, TTSResponse, TTSVoice } from '../../types';
 
-const TTS_ENDPOINT = CONFIG.EDGE_TTS_ENDPOINT;
+const execAsync = promisify(exec);
 
-// ============= Voice Management =============
+// Ensure storage directories exist
+const ensureDirectories = async () => {
+  const dirs = [
+    path.join(config.storage.basePath, 'audio'),
+    path.join(config.storage.basePath, 'temp'),
+  ];
+  
+  for (const dir of dirs) {
+    await fs.mkdir(dir, { recursive: true });
+  }
+};
 
-// Microsoft Edge TTS voices (sample list)
-const AVAILABLE_VOICES: TTSVoice[] = [
-  {
-    id: 'en-US-AriaNeural',
-    name: 'Aria (US English - Female)',
-    language: 'English',
-    gender: 'female',
-    locale: 'en-US',
-  },
-  {
-    id: 'en-US-GuyNeural',
-    name: 'Guy (US English - Male)',
-    language: 'English',
-    gender: 'male',
-    locale: 'en-US',
-  },
-  {
-    id: 'en-GB-SoniaNeural',
-    name: 'Sonia (UK English - Female)',
-    language: 'English',
-    gender: 'female',
-    locale: 'en-GB',
-  },
-  {
-    id: 'en-GB-RyanNeural',
-    name: 'Ryan (UK English - Male)',
-    language: 'English',
-    gender: 'male',
-    locale: 'en-GB',
-  },
-  {
-    id: 'en-AU-NatashaNeural',
-    name: 'Natasha (Australian - Female)',
-    language: 'English',
-    gender: 'female',
-    locale: 'en-AU',
-  },
-  {
-    id: 'en-IN-NeerjaNeural',
-    name: 'Neerja (Indian - Female)',
-    language: 'English',
-    gender: 'female',
-    locale: 'en-IN',
-  },
-];
+// Initialize
+ensureDirectories().catch(console.error);
 
-export function getAvailableVoices(): TTSVoice[] {
-  return AVAILABLE_VOICES;
-}
-
-// ============= TTS Generation =============
-
-export async function generateSpeech(request: TTSRequest): Promise<TTSResponse> {
+/**
+ * Generate audio using EdgeTTS
+ * Requires: pip install edge-tts
+ */
+export const generateAudio = async (request: TTSRequest): Promise<TTSResponse> => {
   try {
-    // For development: simulate TTS response
-    if (CONFIG.NODE_ENV === 'development' && !TTS_ENDPOINT) {
-      console.warn('⚠️  EdgeTTS endpoint not configured. Using mock response.');
-      return await mockTTSGeneration(request);
-    }
-
-    // Call EdgeTTS service
-    // Note: Adjust endpoint format based on your EdgeTTS wrapper implementation
-    const response = await axios.post(
-      `${TTS_ENDPOINT}/generate`,
-      {
-        text: request.text,
-        voice: request.voice,
-        rate: request.rate || 1.0,
-        pitch: request.pitch || 0,
-      },
-      {
-        responseType: 'arraybuffer',
-        timeout: 30000, // 30 seconds
-      }
-    );
-
-    // Save audio file
-    const audioFileName = `tts-${randomUUID()}.mp3`;
-    const audioPath = path.join(CONFIG.STORAGE_PATH, 'audio', audioFileName);
+    const { text, voice, rate = 1.0, pitch = 0 } = request;
     
-    // Ensure directory exists
-    await fs.mkdir(path.dirname(audioPath), { recursive: true });
-    await fs.writeFile(audioPath, response.data);
-
-    // Calculate duration (you might want to use a library like 'get-audio-duration')
-    const duration = await getAudioDuration(audioPath);
-
+    // Generate unique filename
+    const filename = `audio_${Date.now()}_${Math.random().toString(36).substring(7)}.mp3`;
+    const outputPath = path.join(config.storage.basePath, 'audio', filename);
+    
+    // EdgeTTS command
+    const rateParam = rate !== 1.0 ? `+${Math.round((rate - 1) * 100)}%` : '+0%';
+    const pitchParam = pitch !== 0 ? `+${pitch}Hz` : '+0Hz';
+    
+    const command = `edge-tts --voice "${voice}" --rate="${rateParam}" --pitch="${pitchParam}" --text "${text.replace(/"/g, '\\"')}" --write-media "${outputPath}"`;
+    
+    console.log('Generating TTS audio:', { voice, rate, pitch, textLength: text.length });
+    
+    await execAsync(command);
+    
+    // Get audio duration (using ffprobe if available)
+    let duration = 5.0; // default fallback
+    try {
+      const { stdout } = await execAsync(`ffprobe -i "${outputPath}" -show_entries format=duration -v quiet -of csv="p=0"`);
+      duration = parseFloat(stdout.trim());
+    } catch (err) {
+      console.warn('Could not get audio duration, using default');
+    }
+    
+    const audioUrl = `/storage/audio/${filename}`;
+    
     return {
-      audioUrl: `/storage/audio/${audioFileName}`,
+      audioUrl,
       duration,
-      text: request.text,
-      voice: request.voice,
     };
   } catch (error: any) {
-    console.error('TTS generation error:', error.message);
-    throw new Error(`Failed to generate speech: ${error.message}`);
+    console.error('TTS generation error:', error);
+    throw new Error(`Failed to generate audio: ${error.message}`);
   }
-}
+};
 
-// ============= Helper Functions =============
-
-// Mock TTS generation for development
-async function mockTTSGeneration(request: TTSRequest): Promise<TTSResponse> {
-  // Simulate processing time
-  await new Promise(resolve => setTimeout(resolve, 1000));
-
-  // Estimate duration based on text length (rough approximation)
-  const wordsPerMinute = 150;
-  const wordCount = request.text.split(/\s+/).length;
-  const duration = (wordCount / wordsPerMinute) * 60;
-
-  return {
-    audioUrl: '/mock/audio.mp3', // Mock URL
-    duration: Math.max(2, duration), // Minimum 2 seconds
-    text: request.text,
-    voice: request.voice,
-  };
-}
-
-// Get audio duration from file
-async function getAudioDuration(audioPath: string): Promise<number> {
-  // TODO: Implement using 'music-metadata' or similar library
-  // For now, estimate based on file size (very rough)
+/**
+ * Get available EdgeTTS voices
+ */
+export const getAvailableVoices = async (): Promise<TTSVoice[]> => {
   try {
-    const stats = await fs.stat(audioPath);
-    const fileSizeInBytes = stats.size;
-    // Rough estimate: MP3 at 128kbps = ~16KB per second
-    const estimatedDuration = fileSizeInBytes / 16000;
-    return Math.max(1, estimatedDuration);
+    const { stdout } = await execAsync('edge-tts --list-voices');
+    const lines = stdout.split('\n').filter(line => line.includes('Name:'));
+    
+    const voices: TTSVoice[] = lines.map(line => {
+      const nameMatch = line.match(/Name:\s*([^\s]+)/);
+      const genderMatch = line.match(/Gender:\s*(\w+)/);
+      const localeMatch = line.match(/Locale:\s*([^\s]+)/);
+      
+      return {
+        id: nameMatch?.[1] || '',
+        name: nameMatch?.[1] || '',
+        gender: (genderMatch?.[1] as any) || 'Neutral',
+        locale: localeMatch?.[1] || 'en-US',
+      };
+    }).filter(v => v.id);
+    
+    return voices;
   } catch (error) {
-    console.warn('Could not determine audio duration, using default');
-    return 5; // Default 5 seconds
+    console.error('Failed to fetch voices:', error);
+    // Return default voices as fallback
+    return getDefaultVoices();
   }
-}
+};
 
-// Generate waveform data for visualization
-export async function generateWaveform(audioPath: string): Promise<number[]> {
-  // TODO: Implement waveform generation using FFmpeg or audiowaveform
-  // For now, return mock data
-  const points = 100;
-  return Array.from({ length: points }, () => Math.random());
-}
+/**
+ * Default voice list (fallback)
+ */
+const getDefaultVoices = (): TTSVoice[] => [
+  { id: 'en-US-AriaNeural', name: 'Aria (US Female)', gender: 'Female', locale: 'en-US' },
+  { id: 'en-US-GuyNeural', name: 'Guy (US Male)', gender: 'Male', locale: 'en-US' },
+  { id: 'en-GB-SoniaNeural', name: 'Sonia (UK Female)', gender: 'Female', locale: 'en-GB' },
+  { id: 'en-GB-RyanNeural', name: 'Ryan (UK Male)', gender: 'Male', locale: 'en-GB' },
+  { id: 'en-AU-NatashaNeural', name: 'Natasha (AU Female)', gender: 'Female', locale: 'en-AU' },
+  { id: 'en-IN-NeerjaNeural', name: 'Neerja (IN Female)', gender: 'Female', locale: 'en-IN' },
+];
+
+/**
+ * Delete audio file
+ */
+export const deleteAudio = async (audioUrl: string): Promise<void> => {
+  try {
+    const filename = path.basename(audioUrl);
+    const filePath = path.join(config.storage.basePath, 'audio', filename);
+    await fs.unlink(filePath);
+  } catch (error) {
+    console.error('Failed to delete audio file:', error);
+  }
+};

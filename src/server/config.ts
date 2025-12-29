@@ -1,47 +1,81 @@
-// Server configuration
-import { config } from 'dotenv';
+// ============================================
+// SlideCast V2 - Server Configuration
+// ============================================
 
-config();
+import { config as dotenvConfig } from 'dotenv';
 
-export const CONFIG = {
+// Load environment variables
+dotenvConfig();
+
+export const config = {
   // Server
-  PORT: parseInt(process.env.PORT || '3001', 10),
-  NODE_ENV: process.env.NODE_ENV || 'development',
+  port: parseInt(process.env.PORT || '3001', 10),
+  nodeEnv: process.env.NODE_ENV || 'development',
   
   // Database
-  DATABASE_URL: process.env.DATABASE_URL || 'postgresql://localhost:5432/slidecast_v2',
-  DB_HOST: process.env.DB_HOST || 'localhost',
-  DB_PORT: parseInt(process.env.DB_PORT || '5432', 10),
-  DB_NAME: process.env.DB_NAME || 'slidecast_v2',
-  DB_USER: process.env.DB_USER || 'postgres',
-  DB_PASSWORD: process.env.DB_PASSWORD || '',
+  database: {
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '5432', 10),
+    name: process.env.DB_NAME || 'slidecast_v2',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || '',
+    ssl: process.env.DB_SSL === 'true',
+    maxConnections: parseInt(process.env.DB_MAX_CONNECTIONS || '20', 10),
+  },
   
   // JWT
-  JWT_SECRET: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
-  JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
-  
-  // EdgeTTS
-  EDGE_TTS_ENDPOINT: process.env.EDGE_TTS_ENDPOINT || 'http://localhost:5000',
-  
-  // File Storage
-  STORAGE_PATH: process.env.STORAGE_PATH || './storage',
-  MAX_FILE_SIZE: parseInt(process.env.MAX_FILE_SIZE || '10485760', 10), // 10MB
-  
-  // Video Export
-  FFMPEG_PATH: process.env.FFMPEG_PATH || 'ffmpeg',
-  MAX_VIDEO_RESOLUTION: process.env.MAX_VIDEO_RESOLUTION || '1080p',
-  
-  // AI Services
-  GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
-  ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY || '',
+  jwt: {
+    secret: process.env.JWT_SECRET || 'your-super-secret-key-change-in-production',
+    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+    refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d',
+  },
   
   // CORS
-  CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  cors: {
+    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+    credentials: true,
+  },
+  
+  // File Storage
+  storage: {
+    basePath: process.env.STORAGE_PATH || './storage',
+    maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '10485760', 10), // 10MB default
+  },
+  
+  // AI Services
+  ai: {
+    gemini: {
+      apiKey: process.env.GEMINI_API_KEY || '',
+      model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+    },
+    elevenlabs: {
+      apiKey: process.env.ELEVENLABS_API_KEY || '',
+      defaultVoice: process.env.ELEVENLABS_DEFAULT_VOICE || 'Rachel',
+    },
+  },
+  
+  // TTS Service
+  tts: {
+    provider: process.env.TTS_PROVIDER || 'edge-tts', // 'edge-tts' | 'elevenlabs'
+    edgeTTS: {
+      defaultVoice: process.env.EDGE_TTS_VOICE || 'en-US-AriaNeural',
+      rate: process.env.EDGE_TTS_RATE || '1.0',
+      pitch: process.env.EDGE_TTS_PITCH || '0',
+    },
+  },
+  
+  // Video Export
+  video: {
+    ffmpegPath: process.env.FFMPEG_PATH || 'ffmpeg',
+    tempDir: process.env.VIDEO_TEMP_DIR || './temp',
+    maxConcurrentJobs: parseInt(process.env.VIDEO_MAX_CONCURRENT_JOBS || '2', 10),
+  },
   
   // Rate Limiting
-  RATE_LIMIT_WINDOW: parseInt(process.env.RATE_LIMIT_WINDOW || '900000', 10), // 15 min
-  RATE_LIMIT_MAX: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
+  rateLimit: {
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // 15 min
+    maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10),
+  },
 };
 
-export const isDevelopment = CONFIG.NODE_ENV === 'development';
-export const isProduction = CONFIG.NODE_ENV === 'production';
+export default config;

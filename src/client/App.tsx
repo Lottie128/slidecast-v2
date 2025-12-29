@@ -1,26 +1,48 @@
-import React from 'react';
-import { Routes, Route, Navigate } from 'react-router';
-import Layout from './components/Layout';
+// ============================================
+// SlideCast V2 - Main App Component
+// ============================================
+
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import DashboardPage from './pages/DashboardPage';
+import EditorPage from './pages/EditorPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
-import DashboardPage from './pages/DashboardPage';
-import ProjectPage from './pages/ProjectPage';
-import EditorPage from './pages/EditorPage';
+import Navbar from './components/Layout/Navbar';
+import Preloader from './components/Common/Preloader';
 
-const App: React.FC = () => {
+function App() {
+  const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    // Check if user is authenticated
+    const token = localStorage.getItem('accessToken');
+    setIsAuthenticated(!!token);
+    
+    // Simulate preloader
+    setTimeout(() => setLoading(false), 1500);
+  }, []);
+
+  if (loading) {
+    return <Preloader />;
+  }
+
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
-      
-      <Route element={<Layout />}>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/projects/:id" element={<ProjectPage />} />
-        <Route path="/projects/:id/editor" element={<EditorPage />} />
-      </Route>
-    </Routes>
+    <Router>
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+        {isAuthenticated && <Navbar />}
+        
+        <Routes>
+          <Route path="/login" element={!isAuthenticated ? <LoginPage /> : <Navigate to="/dashboard" />} />
+          <Route path="/register" element={!isAuthenticated ? <RegisterPage /> : <Navigate to="/dashboard" />} />
+          <Route path="/dashboard" element={isAuthenticated ? <DashboardPage /> : <Navigate to="/login" />} />
+          <Route path="/editor/:projectId" element={isAuthenticated ? <EditorPage /> : <Navigate to="/login" />} />
+          <Route path="/" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} />} />
+        </Routes>
+      </div>
+    </Router>
   );
-};
+}
 
 export default App;
