@@ -1,95 +1,122 @@
+// ============================================
+// SlideCast V2 - Authentication Routes
+// ============================================
+
+import { Router } from 'express';
 import bcrypt from 'bcrypt';
-import { createUser, getUserByEmail } from '../db/queries';
-import { generateToken } from '../middleware/auth';
-import type { AuthPayload, ApiResponse, AuthResponse } from '../../types';
+import { createUser, findUserByEmail } from '../db/queries';
+import { generateTokens } from '../middleware/auth';
+import type { LoginRequest, RegisterRequest, ApiResponse, AuthTokens } from '../../types';
 
-export const register = async (
-  payload: AuthPayload & { name: string }
-): Promise<ApiResponse<AuthResponse>> => {
+const router = Router();
+
+/**
+ * POST /api/auth/register
+ * Register a new user
+ */
+router.post('/register', async (req, res) => {
   try {
-    // Check if user already exists
-    const existingUser = await getUserByEmail(payload.email);
-    if (existingUser) {
-      return { 
-        success: false, 
-        error: 'Email already registered' 
-      };
+    const { email, username, password }: RegisterRequest = req.body;
+    
+    if (!email || !username || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email, username, and password are required',
+      } as ApiResponse);
     }
-
+    
+    // Check if user exists
+    const existingUser = await findUserByEmail(email);
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        error: 'User already exists',
+      } as ApiResponse);
+    }
+    
     // Hash password
-    const hashedPassword = await bcrypt.hash(payload.password, 10);
+    const passwordHash = await bcrypt.hash(password, 10);
     
     // Create user
-    const user = await createUser(payload.email, payload.name, hashedPassword);
+    const user = await createUser(email, username, passwordHash);
     
-    // Generate JWT token
-    const token = generateToken(user.id);
-
-    return {
+    // Generate tokens
+    const tokens = generateTokens(user.id);
+    
+    res.status(201).json({
       success: true,
       data: {
         user: {
           id: user.id,
           email: user.email,
-          name: user.name,
-          createdAt: user.created_at,
-          updatedAt: user.updated_at,
+          username: user.username,
         },
-        token,
+        ...tokens,
       },
-    };
+    } as ApiResponse<{ user: any; accessToken: string; refreshToken: string }>);
   } catch (error: any) {
-    console.error('Registration error:', error);
-    return { 
-      success: false, 
-      error: 'Registration failed' 
-    };
+    console.error('Register error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    } as ApiResponse);
   }
-};
+});
 
-export const login = async (
-  payload: AuthPayload
-): Promise<ApiResponse<AuthResponse>> => {
+/**
+ * POST /api/auth/login
+ * User login
+ */
+router.post('/login', async (req, res) => {
   try {
-    // Find user
-    const user = await getUserByEmail(payload.email);
-    if (!user) {
-      return { 
-        success: false, 
-        error: 'Invalid credentials' 
-      };
-    }
-
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(payload.password, user.password);
-    if (!isPasswordValid) {
-      return { 
-        success: false, 
-        error: 'Invalid credentials' 
-      };
-    }
-
-    // Generate JWT token
-    const token = generateToken(user.id);
+    const { email, password }: LoginRequest = req.body;
     
-    return {
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email and password are required',
+      } as ApiResponse);
+    }
+    
+    // Find user
+    const user = await findUserByEmail(email);
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid credentials',
+      } as ApiResponse);
+    }
+    
+    // Verify password
+    const passwordValid = await bcrypt.compare(password, (user as any).password_hash);
+    if (!passwordValid) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid credentials',
+      } as ApiResponse);
+    }
+    
+    // Generate tokens
+    const tokens = generateTokens(user.id);
+    
+    res.json({
       success: true,
       data: {
         user: {
           id: user.id,
           email: user.email,
-          name: user.name,
-          createdAt: user.created_at,
-          updatedAt: user.updated_at,
+          username: user.username,
         },
-        token,
+        ...tokens,
       },
-    };
+    } as ApiResponse<{ user: any; accessToken: string; refreshToken: string }>);
   } catch (error: any) {
     console.error('Login error:', error);
-    return { 
-      success: false, 
-      error: 'Login failed' 
-    };
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    } as ApiResponse);
   }
-};
+});
+
+export default router;
