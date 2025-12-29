@@ -1,88 +1,131 @@
+-- SlideCast V2 Database Schema
+-- PostgreSQL 14+
+
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Users table
+-- ============= Users Table =============
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   email VARCHAR(255) UNIQUE NOT NULL,
-  name VARCHAR(255) NOT NULL,
-  password VARCHAR(255) NOT NULL,
-  avatar TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  username VARCHAR(100) UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Projects table
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_username ON users(username);
+
+-- ============= Projects Table =============
 CREATE TABLE IF NOT EXISTS projects (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  title VARCHAR(255) NOT NULL,
+  name VARCHAR(255) NOT NULL,
   description TEXT,
-  design JSONB DEFAULT '{}',
-  status VARCHAR(20) DEFAULT 'draft',
-  video_url TEXT,
-  video_progress INTEGER DEFAULT 0,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  status VARCHAR(50) DEFAULT 'draft' CHECK (status IN ('draft', 'processing', 'completed', 'failed')),
+  video_settings JSONB NOT NULL DEFAULT '{
+    "resolution": "1080p",
+    "fps": 30,
+    "quality": "high",
+    "audioQuality": 192,
+    "includeTransitions": true
+  }'::jsonb,
+  exported_video_url TEXT,
+  exported_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Slides table
+CREATE INDEX idx_projects_user_id ON projects(user_id);
+CREATE INDEX idx_projects_status ON projects(status);
+CREATE INDEX idx_projects_created_at ON projects(created_at DESC);
+
+-- ============= Slides Table =============
 CREATE TABLE IF NOT EXISTS slides (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  "order" INTEGER NOT NULL,
   title VARCHAR(255) NOT NULL,
-  content TEXT NOT NULL,
-  image_url TEXT,
-  image_prompt TEXT,
-  narration_text TEXT,
-  narration_url TEXT,
-  duration FLOAT DEFAULT 5.0,
-  transition VARCHAR(20) DEFAULT 'fade',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  content TEXT,
+  "order" INTEGER NOT NULL,
+  duration NUMERIC(10, 2) DEFAULT 5.0,
+  
+  -- Background
+  background_type VARCHAR(50) DEFAULT 'gradient' CHECK (background_type IN ('gradient', 'solid', 'image')),
+  background_gradient TEXT,
+  background_color VARCHAR(50),
+  background_image_url TEXT,
+  
+  -- Elements (stored as JSON array)
+  elements JSONB DEFAULT '[]'::jsonb,
+  
+  -- Audio
+  audio_url TEXT,
+  audio_duration NUMERIC(10, 2),
+  audio_text TEXT,
+  voice_id VARCHAR(100),
+  
+  -- Transition
+  transition JSONB,
+  
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  
+  UNIQUE(project_id, "order")
 );
 
--- Video generation jobs table
-CREATE TABLE IF NOT EXISTS video_jobs (
+CREATE INDEX idx_slides_project_id ON slides(project_id);
+CREATE INDEX idx_slides_order ON slides(project_id, "order");
+
+-- ============= Refresh Tokens Table (for JWT) =============
+CREATE TABLE IF NOT EXISTS refresh_tokens (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  status VARCHAR(50) DEFAULT 'queued',
-  progress INTEGER DEFAULT 0,
-  current_slide INTEGER,
-  total_slides INTEGER,
-  error TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token TEXT NOT NULL,
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Indexes for performance
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
-CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
-CREATE INDEX IF NOT EXISTS idx_slides_project_id ON slides(project_id);
-CREATE INDEX IF NOT EXISTS idx_slides_order ON slides(project_id, "order");
-CREATE INDEX IF NOT EXISTS idx_video_jobs_project_id ON video_jobs(project_id);
-CREATE INDEX IF NOT EXISTS idx_video_jobs_status ON video_jobs(status);
+CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
+CREATE INDEX idx_refresh_tokens_token ON refresh_tokens(token);
 
--- Update timestamp trigger function
+-- ============= Functions =============
+
+-- Update updated_at timestamp automatically
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
+  NEW.updated_at = NOW();
+  RETURN NEW;
 END;
-$$ language 'plpgsql';
+$$ LANGUAGE plpgsql;
 
--- Create triggers for updated_at
+-- Apply to all tables
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_projects_updated_at BEFORE UPDATE ON projects
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_slides_updated_at BEFORE UPDATE ON slides
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_video_jobs_updated_at BEFORE UPDATE ON video_jobs
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- ============= Views =============
+
+-- Project with slide count
+CREATE OR REPLACE VIEW projects_with_stats AS
+SELECT 
+  p.*,
+  COUNT(s.id) as slide_count,
+  COALESCE(SUM(s.duration), 0) as total_duration
+FROM projects p
+LEFT JOIN slides s ON p.id = s.project_id
+GROUP BY p.id;
+
+-- ============= Sample Data (Development Only) =============
+
+-- Uncomment below for development seed data
+/*
+INSERT INTO users (email, username, password_hash) VALUES
+  ('demo@slidecast.com', 'demo', '$2b$10$SAMPLE_HASH_REPLACE_IN_PRODUCTION');
+*/
