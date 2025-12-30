@@ -6,7 +6,7 @@ import AudioPanel from '../components/AudioPanel';
 import TemplateGallery from '../components/TemplateGallery';
 import ExportModal from '../components/ExportModal';
 
-// CANVAS-FOCUSED EDITOR - 80% CANVAS, COMPACT EVERYTHING ELSE!
+// COMPLETE VIDEO EDITOR - AUDIO, RESIZE, DELETE, TEXT EFFECTS!
 
 interface SlideElement {
   id: string;
@@ -48,17 +48,7 @@ const EditorPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   
-  const [slides, setSlides] = useState<Slide[]>([
-    {
-      id: 'slide-1',
-      name: 'Slide 1',
-      elements: [],
-      background: '#ffffff',
-      backgroundType: 'color',
-      duration: 5
-    }
-  ]);
-  
+  const [slides, setSlides] = useState<Slide[]>([{ id: 'slide-1', name: 'Slide 1', elements: [], background: '#ffffff', backgroundType: 'color', duration: 5 }]);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [selectedElements, setSelectedElements] = useState<string[]>([]);
   const [clipboard, setClipboard] = useState<SlideElement[]>([]);
@@ -66,15 +56,22 @@ const EditorPage: React.FC = () => {
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [resizing, setResizing] = useState<{ elementId: string; handle: string } | null>(null);
+  const [resizeStart, setResizeStart] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
   const [showGrid, setShowGrid] = useState(false);
   const [rightPanel, setRightPanel] = useState<'properties' | 'effects' | 'animations' | 'audio' | 'background'>('properties');
   const [showTemplates, setShowTemplates] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [audioGenerating, setAudioGenerating] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; slideIndex: number } | null>(null);
   
   const canvasRef = useRef<HTMLDivElement>(null);
   const [canvasScale, setCanvasScale] = useState(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bgImageInputRef = useRef<HTMLInputElement>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const updateScale = () => {
@@ -98,6 +95,7 @@ const EditorPage: React.FC = () => {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (editing) return;
       if (e.ctrlKey && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
       if (e.ctrlKey && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
       if (e.ctrlKey && e.key === 'a') { e.preventDefault(); setSelectedElements(elements.map(el => el.id)); }
@@ -108,7 +106,7 @@ const EditorPage: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedElements, elements]);
+  }, [selectedElements, elements, editing]);
 
   const executeCommand = (command: any) => {
     command.execute();
@@ -134,7 +132,7 @@ const EditorPage: React.FC = () => {
       width: type === 'text' ? 400 : type === 'image' ? 500 : 300,
       height: type === 'text' ? 80 : type === 'image' ? 400 : 300,
       content: type === 'text' ? 'Double-click to edit' : '',
-      backgroundColor: type === 'shape' ? '#8b5cf6' : 'transparent',
+      backgroundColor: type === 'shape' ? '#8b5cf6' : type === 'text' ? 'transparent' : 'transparent',
       color: type === 'text' ? '#1f2937' : undefined,
       fontSize: 48,
       fontFamily: 'Inter',
@@ -144,10 +142,9 @@ const EditorPage: React.FC = () => {
       visible: true,
       locked: false,
       shapeType: shapeType as any || 'rectangle',
-      borderRadius: shapeType === 'circle' ? 9999 : 8,
+      borderRadius: shapeType === 'circle' ? 9999 : 0,
       imageUrl: imageUrl
     };
-
     const command = {
       execute: () => updateElements([...elements, newElement]),
       undo: () => updateElements(elements.filter(el => el.id !== newElement.id))
@@ -194,20 +191,66 @@ const EditorPage: React.FC = () => {
     }
   };
 
+  const handleResizeStart = (e: React.MouseEvent, elementId: string, handle: string) => {
+    e.stopPropagation();
+    const element = elements.find(el => el.id === elementId);
+    if (!element) return;
+    setResizing({ elementId, handle });
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (rect) {
+      const mouseX = (e.clientX - rect.left) / canvasScale;
+      const mouseY = (e.clientY - rect.top) / canvasScale;
+      setResizeStart({ x: mouseX, y: mouseY, width: element.width, height: element.height });
+    }
+  };
+
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!dragging || !canvasRef.current) return;
+    if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const mouseX = (e.clientX - rect.left) / canvasScale;
     const mouseY = (e.clientY - rect.top) / canvasScale;
-    let newX = mouseX - dragOffset.x;
-    let newY = mouseY - dragOffset.y;
-    if (showGrid) { newX = Math.round(newX / 24) * 24; newY = Math.round(newY / 24) * 24; }
-    newX = Math.max(0, Math.min(1920 - 50, newX));
-    newY = Math.max(0, Math.min(1080 - 50, newY));
-    updateElement(dragging, { x: newX, y: newY });
+
+    if (dragging && !resizing) {
+      let newX = mouseX - dragOffset.x;
+      let newY = mouseY - dragOffset.y;
+      if (showGrid) { newX = Math.round(newX / 24) * 24; newY = Math.round(newY / 24) * 24; }
+      newX = Math.max(0, Math.min(1920 - 50, newX));
+      newY = Math.max(0, Math.min(1080 - 50, newY));
+      updateElement(dragging, { x: newX, y: newY });
+    }
+
+    if (resizing && resizeStart) {
+      const deltaX = mouseX - resizeStart.x;
+      const deltaY = mouseY - resizeStart.y;
+      let newWidth = resizeStart.width;
+      let newHeight = resizeStart.height;
+
+      if (resizing.handle.includes('e')) newWidth = Math.max(50, resizeStart.width + deltaX);
+      if (resizing.handle.includes('s')) newHeight = Math.max(50, resizeStart.height + deltaY);
+      if (resizing.handle.includes('w')) newWidth = Math.max(50, resizeStart.width - deltaX);
+      if (resizing.handle.includes('n')) newHeight = Math.max(50, resizeStart.height - deltaY);
+
+      updateElement(resizing.elementId, { width: newWidth, height: newHeight });
+    }
   };
 
-  const handleMouseUp = () => setDragging(null);
+  const handleMouseUp = () => { setDragging(null); setResizing(null); };
+
+  const handleDoubleClick = (elementId: string) => {
+    const element = elements.find(el => el.id === elementId);
+    if (element?.type === 'text') {
+      setEditing(elementId);
+      setEditText(element.content || '');
+      setTimeout(() => editInputRef.current?.focus(), 10);
+    }
+  };
+
+  const saveEdit = () => {
+    if (editing) {
+      updateElement(editing, { content: editText });
+      setEditing(null);
+    }
+  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -227,9 +270,7 @@ const EditorPage: React.FC = () => {
       const reader = new FileReader();
       reader.onload = (event) => {
         const imageUrl = event.target?.result as string;
-        setSlides(prev => prev.map((slide, idx) =>
-          idx === currentSlideIndex ? { ...slide, backgroundImage: imageUrl, backgroundType: 'image' } : slide
-        ));
+        setSlides(prev => prev.map((slide, idx) => idx === currentSlideIndex ? { ...slide, backgroundImage: imageUrl, backgroundType: 'image' } : slide));
       };
       reader.readAsDataURL(file);
     }
@@ -241,6 +282,16 @@ const EditorPage: React.FC = () => {
     setCurrentSlideIndex(slides.length);
   };
 
+  const deleteSlide = (index: number) => {
+    if (slides.length <= 1) { alert('Cannot delete the last slide!'); return; }
+    if (confirm(`Delete ${slides[index].name}?`)) {
+      const newSlides = slides.filter((_, i) => i !== index);
+      setSlides(newSlides);
+      if (currentSlideIndex >= newSlides.length) setCurrentSlideIndex(newSlides.length - 1);
+    }
+    setContextMenu(null);
+  };
+
   const totalDuration = slides.reduce((sum, slide) => sum + slide.duration, 0);
   const applyTemplate = (template: any) => {
     setSlides(prev => prev.map((slide, idx) => idx === currentSlideIndex ? { ...slide, background: template.gradient, backgroundType: 'gradient' } : slide));
@@ -249,18 +300,55 @@ const EditorPage: React.FC = () => {
   const generateAudioFromSlide = async () => {
     const textElements = elements.filter(el => el.type === 'text' && el.content);
     if (textElements.length === 0) { alert('No text elements found on this slide!'); return; }
+    
     const combinedText = textElements.map(el => el.content).join('. ');
-    alert(`Generating audio for: "${combinedText.substring(0, 50)}..."`);
-    const mockAudioUrl = `/audio/slide-${currentSlide.id}.mp3`;
-    const estimatedDuration = Math.max(3, Math.ceil(combinedText.length / 15));
-    setSlides(prev => prev.map((slide, idx) => idx === currentSlideIndex ? { ...slide, audioUrl: mockAudioUrl, duration: estimatedDuration } : slide));
+    setAudioGenerating(true);
+    
+    try {
+      // REAL TTS API CALL
+      const response = await fetch('https://api.streamelements.com/kappa/v2/speech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voice: 'Brian', text: combinedText })
+      });
+      
+      if (!response.ok) throw new Error('TTS API failed');
+      
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const estimatedDuration = Math.max(3, Math.ceil(combinedText.length / 15));
+      
+      setSlides(prev => prev.map((slide, idx) =>
+        idx === currentSlideIndex ? { ...slide, audioUrl, duration: estimatedDuration } : slide
+      ));
+      
+      alert('Audio generated successfully! ✅');
+    } catch (error) {
+      console.error('Audio generation failed:', error);
+      alert('Audio generation failed. Using fallback method.');
+      
+      // Fallback: Use browser SpeechSynthesis
+      const utterance = new SpeechSynthesisUtterance(combinedText);
+      utterance.rate = 0.9;
+      utterance.pitch = 1;
+      window.speechSynthesis.speak(utterance);
+      
+      const estimatedDuration = Math.max(3, Math.ceil(combinedText.length / 15));
+      setSlides(prev => prev.map((slide, idx) =>
+        idx === currentSlideIndex ? { ...slide, audioUrl: 'speech-synthesis', duration: estimatedDuration } : slide
+      ));
+    } finally {
+      setAudioGenerating(false);
+    }
   };
 
   const getAnimationClass = (animation: any) => { if (!animation || animation.type === 'none') return ''; return `animate-${animation.type}`; };
+  
   const getShadowStyle = (shadow: any) => {
     if (!shadow) return {};
     return { filter: `drop-shadow(${shadow.offsetX}px ${shadow.offsetY}px ${shadow.blur}px rgba(0,0,0,${shadow.opacity || 0.3}))` };
   };
+  
   const getBackgroundStyle = () => {
     if (currentSlide.backgroundType === 'image' && currentSlide.backgroundImage) {
       return { backgroundImage: `url(${currentSlide.backgroundImage})`, backgroundSize: 'cover', backgroundPosition: 'center' };
@@ -269,7 +357,7 @@ const EditorPage: React.FC = () => {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-gray-900 text-white overflow-hidden">
+    <div className="h-screen flex flex-col bg-gray-900 text-white overflow-hidden" onClick={() => setContextMenu(null)}>
       <style>{`
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
@@ -292,18 +380,27 @@ const EditorPage: React.FC = () => {
         .animate-scale-out { animation: scaleOut 0.8s ease-out; }
         .animate-rotate { animation: rotate 1s ease-out; }
         .animate-bounce { animation: bounce 1s ease; }
+        
+        .resize-handle {
+          position: absolute;
+          width: 10px;
+          height: 10px;
+          background: white;
+          border: 2px solid #3b82f6;
+          border-radius: 2px;
+          z-index: 10;
+        }
+        .resize-handle.nw { top: -5px; left: -5px; cursor: nw-resize; }
+        .resize-handle.ne { top: -5px; right: -5px; cursor: ne-resize; }
+        .resize-handle.sw { bottom: -5px; left: -5px; cursor: sw-resize; }
+        .resize-handle.se { bottom: -5px; right: -5px; cursor: se-resize; }
       `}</style>
 
-      {/* COMPACT TOOLBAR - SINGLE ROW */}
       <header className="bg-gray-800 border-b border-gray-700 px-4 py-2.5 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/dashboard')} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm flex items-center gap-1">
-            ← Back
-          </button>
+          <button onClick={() => navigate('/dashboard')} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm flex items-center gap-1">← Back</button>
           <h1 className="text-base font-bold">SlideCast V2</h1>
         </div>
-
-        {/* ADD BUTTONS - COMPACT BUT VISIBLE */}
         <div className="flex items-center gap-2">
           <button onClick={() => addElement('text')} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-sm font-semibold flex items-center gap-1.5">
             <span className="text-base">📝</span> Text
@@ -319,7 +416,6 @@ const EditorPage: React.FC = () => {
           </button>
           <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
         </div>
-
         <div className="flex items-center gap-2">
           <button onClick={undo} disabled={historyIndex < 0} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs disabled:opacity-30">↶</button>
           <button onClick={redo} disabled={historyIndex >= history.length - 1} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs disabled:opacity-30">↷</button>
@@ -329,9 +425,7 @@ const EditorPage: React.FC = () => {
         </div>
       </header>
 
-      {/* MAIN AREA - CANVAS FOCUSED */}
       <div className="flex-1 flex overflow-hidden">
-        {/* LEFT SIDEBAR - COMPACT LAYERS */}
         <aside className="w-56 bg-gray-800 border-r border-gray-700 overflow-y-auto flex-shrink-0">
           <div className="p-3">
             <h3 className="text-xs font-semibold mb-2 text-gray-400 uppercase">Layers ({elements.length})</h3>
@@ -339,7 +433,7 @@ const EditorPage: React.FC = () => {
               {elements.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <p className="text-3xl mb-2">🎨</p>
-                  <p className="text-xs">Click buttons above to add elements</p>
+                  <p className="text-xs">Click buttons above</p>
                 </div>
               ) : (
                 elements.map((element, idx) => (
@@ -358,48 +452,71 @@ const EditorPage: React.FC = () => {
           </div>
         </aside>
 
-        {/* MASSIVE CANVAS - 80% */}
         <main className="flex-1 flex items-center justify-center bg-gray-900 p-4" onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}>
           <div ref={canvasRef} className="rounded-lg shadow-2xl relative overflow-hidden"
             style={{
-              width: `${1920 * canvasScale}px`,
-              height: `${1080 * canvasScale}px`,
-              ...getBackgroundStyle(),
+              width: `${1920 * canvasScale}px`, height: `${1080 * canvasScale}px`, ...getBackgroundStyle(),
               backgroundImage: showGrid ? `linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px), ${getBackgroundStyle().backgroundImage || getBackgroundStyle().background}` : getBackgroundStyle().backgroundImage,
               backgroundSize: showGrid ? `${24 * canvasScale}px ${24 * canvasScale}px, ${24 * canvasScale}px ${24 * canvasScale}px, cover` : 'cover'
-            }}
-            onClick={() => setSelectedElements([])}>
+            }} onClick={() => { setSelectedElements([]); saveEdit(); }}>
             {elements.map((element) => (
               <div key={element.id}
                 className={`absolute select-none ${getAnimationClass(element.animation)} ${
-                  selectedElements.includes(element.id) ? 'ring-4 ring-blue-500 cursor-move' : 'cursor-move hover:ring-2 hover:ring-blue-300'
+                  selectedElements.includes(element.id) ? 'ring-4 ring-blue-500' : 'hover:ring-2 hover:ring-blue-300'
                 }`}
                 style={{
                   left: `${element.x * canvasScale}px`, top: `${element.y * canvasScale}px`,
                   width: `${element.width * canvasScale}px`, height: `${element.height * canvasScale}px`,
                   opacity: (element.opacity || 100) / 100,
                   transform: `rotate(${element.rotation || 0}deg)`,
-                  filter: element.blur ? `blur(${element.blur}px)` : 'none',
+                  cursor: editing === element.id ? 'text' : 'move',
                   ...getShadowStyle(element.shadow)
                 }}
-                onMouseDown={(e) => handleMouseDown(e, element.id)}
-                onClick={(e) => { e.stopPropagation(); setSelectedElements([element.id]); }}>
+                onMouseDown={(e) => !editing && handleMouseDown(e, element.id)}
+                onClick={(e) => { e.stopPropagation(); setSelectedElements([element.id]); }}
+                onDoubleClick={() => handleDoubleClick(element.id)}>
                 {element.type === 'text' && (
-                  <div className="w-full h-full flex items-center justify-center px-2" style={{
-                    color: element.color, fontSize: `${(element.fontSize || 32) * canvasScale}px`,
-                    fontFamily: element.fontFamily || 'Inter', fontWeight: element.fontWeight || 400, textAlign: 'center'
-                  }}>{element.content}</div>
+                  editing === element.id ? (
+                    <input ref={editInputRef} type="text" value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                      onBlur={saveEdit}
+                      onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); }}
+                      className="w-full h-full bg-transparent border-2 border-blue-500 px-2 text-center"
+                      style={{
+                        color: element.color, fontSize: `${(element.fontSize || 32) * canvasScale}px`,
+                        fontFamily: element.fontFamily || 'Inter', fontWeight: element.fontWeight || 400,
+                        filter: element.blur ? `blur(${element.blur}px)` : 'none'
+                      }} />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center px-2" style={{
+                      color: element.color, fontSize: `${(element.fontSize || 32) * canvasScale}px`,
+                      fontFamily: element.fontFamily || 'Inter', fontWeight: element.fontWeight || 400,
+                      textAlign: 'center', backgroundColor: element.backgroundColor,
+                      borderRadius: `${(element.borderRadius || 0) * canvasScale}px`,
+                      filter: element.blur ? `blur(${element.blur}px)` : 'none'
+                    }}>{element.content}</div>
+                  )
                 )}
                 {element.type === 'shape' && (
                   <div className="w-full h-full" style={{
                     backgroundColor: element.backgroundColor,
-                    borderRadius: element.shapeType === 'circle' ? '50%' : `${(element.borderRadius || 0) * canvasScale}px`
+                    borderRadius: element.shapeType === 'circle' ? '50%' : `${(element.borderRadius || 0) * canvasScale}px`,
+                    filter: element.blur ? `blur(${element.blur}px)` : 'none'
                   }} />
                 )}
                 {element.type === 'image' && element.imageUrl && (
                   <img src={element.imageUrl} alt="" className="w-full h-full object-cover" style={{
-                    borderRadius: `${(element.borderRadius || 0) * canvasScale}px`
+                    borderRadius: `${(element.borderRadius || 0) * canvasScale}px`,
+                    filter: element.blur ? `blur(${element.blur}px)` : 'none'
                   }} />
+                )}
+                {selectedElements.includes(element.id) && !editing && (
+                  <>
+                    <div className="resize-handle nw" onMouseDown={(e) => handleResizeStart(e, element.id, 'nw')} />
+                    <div className="resize-handle ne" onMouseDown={(e) => handleResizeStart(e, element.id, 'ne')} />
+                    <div className="resize-handle sw" onMouseDown={(e) => handleResizeStart(e, element.id, 'sw')} />
+                    <div className="resize-handle se" onMouseDown={(e) => handleResizeStart(e, element.id, 'se')} />
+                  </>
                 )}
               </div>
             ))}
@@ -414,7 +531,6 @@ const EditorPage: React.FC = () => {
           </div>
         </main>
 
-        {/* RIGHT SIDEBAR - PROPERTIES */}
         <aside className="w-72 bg-gray-800 border-l border-gray-700 overflow-y-auto flex-shrink-0">
           <div className="flex border-b border-gray-700">
             {['properties', 'effects', 'animations', 'audio', 'background'].map((panel) => (
@@ -434,21 +550,27 @@ const EditorPage: React.FC = () => {
                     onChange={(e) => setSlides(prev => prev.map((slide, idx) => idx === currentSlideIndex ? { ...slide, background: e.target.value, backgroundType: 'color' } : slide))}
                     className="w-full h-10 rounded" />
                 </div>
-                <button onClick={() => bgImageInputRef.current?.click()} className="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded text-xs">
-                  📷 Upload Image
-                </button>
+                <button onClick={() => bgImageInputRef.current?.click()} className="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded text-xs">📷 Upload Image</button>
                 <input ref={bgImageInputRef} type="file" accept="image/*" onChange={handleBgImageUpload} className="hidden" />
               </div>
             )}
             {rightPanel === 'audio' && (
               <div className="space-y-3">
                 <h4 className="text-xs font-semibold text-gray-300">🎤 Audio</h4>
-                <div className="p-2 bg-blue-900/20 border border-blue-700 rounded">
-                  <p className="text-xs text-blue-300 mb-2">✨ Auto-Generate</p>
-                  <button onClick={generateAudioFromSlide} className="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded text-xs font-semibold">
-                    🎙️ Generate Audio
+                <div className="p-3 bg-blue-900/20 border border-blue-700 rounded">
+                  <p className="text-xs text-blue-300 mb-2">✨ Auto-Generate from Slide Text</p>
+                  <button onClick={generateAudioFromSlide} disabled={audioGenerating}
+                    className="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded text-xs font-semibold disabled:opacity-50">
+                    {audioGenerating ? '⏳ Generating...' : '🎙️ Generate Audio'}
                   </button>
                 </div>
+                {currentSlide.audioUrl && currentSlide.audioUrl !== 'speech-synthesis' && (
+                  <div className="p-3 bg-green-900/20 border border-green-700 rounded">
+                    <p className="text-xs text-green-300 mb-2">✅ Audio Ready</p>
+                    <audio src={currentSlide.audioUrl} controls className="w-full" />
+                    <a href={currentSlide.audioUrl} download className="block mt-2 text-xs text-blue-400 hover:underline">📥 Download Audio</a>
+                  </div>
+                )}
                 <AudioPanel slideId={currentSlide.id} audioUrl={currentSlide.audioUrl}
                   onAudioUpdate={(url, duration) => setSlides(prev => prev.map((slide, idx) => idx === currentSlideIndex ? { ...slide, audioUrl: url, duration } : slide))} />
               </div>
@@ -498,9 +620,7 @@ const EditorPage: React.FC = () => {
                     onChange={(e) => updateElement(selectedElement.id, { height: parseInt(e.target.value) })}
                     className="w-full" />
                 </div>
-                <button onClick={deleteSelected} className="w-full py-2 bg-red-600 hover:bg-red-700 rounded text-xs font-semibold">
-                  🗑️ Delete
-                </button>
+                <button onClick={deleteSelected} className="w-full py-2 bg-red-600 hover:bg-red-700 rounded text-xs font-semibold">🗑️ Delete</button>
               </div>
             )}
             {rightPanel === 'effects' && selectedElement && <EffectsPanel element={selectedElement} onUpdate={(updates) => updateElement(selectedElement.id, updates)} />}
@@ -512,7 +632,6 @@ const EditorPage: React.FC = () => {
         </aside>
       </div>
 
-      {/* COMPACT TIMELINE - SMALL THUMBNAILS */}
       <div className="bg-gray-800 border-t border-gray-700 flex-shrink-0" style={{ height: '100px' }}>
         <div className="p-2 h-full">
           <div className="flex items-center justify-between mb-2">
@@ -521,7 +640,9 @@ const EditorPage: React.FC = () => {
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1">
             {slides.map((slide, index) => (
-              <div key={slide.id} onClick={() => setCurrentSlideIndex(index)}
+              <div key={slide.id}
+                onClick={() => setCurrentSlideIndex(index)}
+                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, slideIndex: index }); }}
                 className={`flex-shrink-0 cursor-pointer transition-all ${
                   currentSlideIndex === index ? 'ring-2 ring-purple-500' : 'opacity-60 hover:opacity-100'
                 }`} style={{ width: '80px' }}>
@@ -533,6 +654,14 @@ const EditorPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {contextMenu && (
+        <div className="fixed bg-gray-800 border border-gray-600 rounded shadow-lg py-1 z-50"
+          style={{ left: contextMenu.x, top: contextMenu.y }}>
+          <button onClick={() => deleteSlide(contextMenu.slideIndex)}
+            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700 text-red-400">🗑️ Delete Slide</button>
+        </div>
+      )}
 
       <TemplateGallery isOpen={showTemplates} onClose={() => setShowTemplates(false)} onApply={applyTemplate} />
       <ExportModal isOpen={showExport} onClose={() => setShowExport(false)} slides={slides} projectName="Presentation" />
