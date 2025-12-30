@@ -12,6 +12,9 @@ import {
   deleteProject,
   createSlide,
   getSlidesByProjectId,
+  updateSlide,
+  deleteSlide,
+  reorderSlides,
 } from '../db/queries';
 import type { ApiResponse, Project, Slide } from '../../types';
 
@@ -65,10 +68,10 @@ router.get('/', async (req: AuthRequest, res) => {
     
     const result = await getProjectsByUserId(userId, page, pageSize);
     
-    // Return the projects array directly
+    // FIX: Return result.items not result.projects
     res.json({
       success: true,
-      data: result.projects || [],
+      data: result.items || [],
     } as ApiResponse);
   } catch (error: any) {
     console.error('Get projects error:', error);
@@ -275,6 +278,121 @@ router.get('/:id/slides', async (req: AuthRequest, res) => {
     } as ApiResponse<Slide[]>);
   } catch (error: any) {
     console.error('Get slides error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    } as ApiResponse);
+  }
+});
+
+/**
+ * PATCH /api/projects/:projectId/slides/:slideId
+ * Update a slide
+ */
+router.patch('/:projectId/slides/:slideId', async (req: AuthRequest, res) => {
+  try {
+    const userId = req.userId!;
+    const { projectId, slideId } = req.params;
+    const updates = req.body;
+    
+    // Verify project ownership
+    const project = await getProjectById(projectId);
+    if (!project || (project as any).user_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied',
+      } as ApiResponse);
+    }
+    
+    const updated = await updateSlide(slideId, updates);
+    
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        error: 'Slide not found',
+      } as ApiResponse);
+    }
+    
+    res.json({
+      success: true,
+      data: updated,
+    } as ApiResponse<Slide>);
+  } catch (error: any) {
+    console.error('Update slide error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    } as ApiResponse);
+  }
+});
+
+/**
+ * DELETE /api/projects/:projectId/slides/:slideId
+ * Delete a slide
+ */
+router.delete('/:projectId/slides/:slideId', async (req: AuthRequest, res) => {
+  try {
+    const userId = req.userId!;
+    const { projectId, slideId } = req.params;
+    
+    // Verify project ownership
+    const project = await getProjectById(projectId);
+    if (!project || (project as any).user_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied',
+      } as ApiResponse);
+    }
+    
+    const deleted = await deleteSlide(slideId);
+    
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        error: 'Slide not found',
+      } as ApiResponse);
+    }
+    
+    res.json({
+      success: true,
+      message: 'Slide deleted successfully',
+    } as ApiResponse);
+  } catch (error: any) {
+    console.error('Delete slide error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    } as ApiResponse);
+  }
+});
+
+/**
+ * POST /api/projects/:id/slides/reorder
+ * Reorder slides in a project
+ */
+router.post('/:id/slides/reorder', async (req: AuthRequest, res) => {
+  try {
+    const userId = req.userId!;
+    const projectId = req.params.id;
+    const { slideIds } = req.body;
+    
+    // Verify project ownership
+    const project = await getProjectById(projectId);
+    if (!project || (project as any).user_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied',
+      } as ApiResponse);
+    }
+    
+    await reorderSlides(projectId, slideIds);
+    
+    res.json({
+      success: true,
+      message: 'Slides reordered successfully',
+    } as ApiResponse);
+  } catch (error: any) {
+    console.error('Reorder slides error:', error);
     res.status(500).json({
       success: false,
       error: error.message,
