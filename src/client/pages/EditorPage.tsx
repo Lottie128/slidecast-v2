@@ -11,6 +11,7 @@ interface Slide {
   audio_url?: string;
   audio_duration?: number | string;
   animation_type?: string;
+  elements?: any[]; // For future image/element support
 }
 
 interface Project {
@@ -39,7 +40,7 @@ const animationTypes = [
   { value: 'none', label: 'None' },
   { value: 'fade', label: 'Fade In' },
   { value: 'slide', label: 'Slide Up' },
-  { value: 'typing', label: 'Typing Effect' },
+  { value: 'typing', label: 'Typing Effect (Synced)' },
   { value: 'scale', label: 'Scale Up' },
 ];
 
@@ -73,7 +74,10 @@ const EditorPage = () => {
   const [voices, setVoices] = useState<Voice[]>(DEFAULT_VOICES);
   const [selectedVoice, setSelectedVoice] = useState<string>('en-US-AriaNeural');
   const [isPlaying, setIsPlaying] = useState(false);
-  const [showAnimation, setShowAnimation] = useState(false);
+  
+  // For synchronized typing animation
+  const [displayedTitle, setDisplayedTitle] = useState('');
+  const [displayedContent, setDisplayedContent] = useState('');
   const [animationType, setAnimationType] = useState<string>('fade');
 
   const [title, setTitle] = useState('');
@@ -82,6 +86,7 @@ const EditorPage = () => {
   
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const typingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     fetchProject();
@@ -97,7 +102,20 @@ const EditorPage = () => {
       setBgValue(slide.background_gradient);
       setAnimationType(slide.animation_type || 'fade');
       setIsPlaying(false);
-      setShowAnimation(false);
+      
+      // Reset displayed text
+      if (slide.animation_type === 'typing') {
+        setDisplayedTitle('');
+        setDisplayedContent('');
+      } else {
+        setDisplayedTitle(slide.title);
+        setDisplayedContent(slide.content);
+      }
+      
+      // Clear any ongoing typing animation
+      if (typingIntervalRef.current) {
+        clearInterval(typingIntervalRef.current);
+      }
       
       // Update audio source when slide changes
       if (audioRef.current && slide.audio_url) {
@@ -295,16 +313,68 @@ const EditorPage = () => {
     }
   };
 
+  // Synchronized typing animation
+  const startTypingAnimation = () => {
+    if (!audioRef.current) return;
+    
+    const currentSlideData = slides[currentSlide];
+    if (!currentSlideData) return;
+    
+    const audioDuration = typeof currentSlideData.audio_duration === 'string' 
+      ? parseFloat(currentSlideData.audio_duration) 
+      : currentSlideData.audio_duration || 5;
+    
+    const fullText = `${title}. ${content}`;
+    const titleLength = title.length;
+    const totalLength = fullText.length;
+    
+    // Calculate typing speed based on audio duration
+    const charsPerSecond = totalLength / audioDuration;
+    const msPerChar = 1000 / charsPerSecond;
+    
+    let currentIndex = 0;
+    setDisplayedTitle('');
+    setDisplayedContent('');
+    
+    typingIntervalRef.current = setInterval(() => {
+      if (currentIndex <= totalLength) {
+        if (currentIndex <= titleLength) {
+          // Typing title
+          setDisplayedTitle(title.substring(0, currentIndex));
+        } else {
+          // Title complete, typing content
+          setDisplayedTitle(title);
+          const contentIndex = currentIndex - titleLength - 2; // -2 for ". "
+          setDisplayedContent(content.substring(0, contentIndex));
+        }
+        currentIndex++;
+      } else {
+        // Animation complete
+        if (typingIntervalRef.current) {
+          clearInterval(typingIntervalRef.current);
+        }
+      }
+    }, msPerChar);
+  };
+
   const toggleAudioPlayback = () => {
     if (!audioRef.current) return;
     
     if (isPlaying) {
       audioRef.current.pause();
       setIsPlaying(false);
-      setShowAnimation(false);
+      if (typingIntervalRef.current) {
+        clearInterval(typingIntervalRef.current);
+      }
     } else {
-      // Trigger animations when audio starts
-      setShowAnimation(true);
+      // Start audio and sync animations
+      if (animationType === 'typing') {
+        startTypingAnimation();
+      } else {
+        // For non-typing animations, show full text immediately with animation class
+        setDisplayedTitle(title);
+        setDisplayedContent(content);
+      }
       audioRef.current.play();
       setIsPlaying(true);
     }
@@ -329,13 +399,12 @@ const EditorPage = () => {
 
   const currentSlideData = slides[currentSlide];
 
-  // Get animation CSS class - only when playing
+  // Get animation CSS class for non-typing animations
   const getAnimationClass = () => {
-    if (!showAnimation) return '';
+    if (!isPlaying || animationType === 'typing') return '';
     switch (animationType) {
       case 'fade': return 'animate-fadeIn';
       case 'slide': return 'animate-slideUp';
-      case 'typing': return 'animate-typing';
       case 'scale': return 'animate-scaleUp';
       default: return '';
     }
@@ -405,7 +474,6 @@ const EditorPage = () => {
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-bold text-white">#{index + 1}</span>
                     <div className="flex items-center gap-2">
-                      {/* Play Audio Button */}
                       {slide.audio_url && (
                         <button
                           onClick={(e) => playSlideAudio(slide.audio_url!, e)}
@@ -415,7 +483,6 @@ const EditorPage = () => {
                           ▶
                         </button>
                       )}
-                      {/* Delete X button */}
                       <button
                         onClick={(e) => deleteSlide(slide.id, e)}
                         className="opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold"
@@ -426,7 +493,6 @@ const EditorPage = () => {
                     </div>
                   </div>
                   
-                  {/* Thumbnail Preview */}
                   <div
                     className="w-full h-20 rounded mb-2 flex flex-col justify-center px-2 py-2 overflow-hidden"
                     style={{ background: slide.background_gradient }}
@@ -451,19 +517,12 @@ const EditorPage = () => {
               className="w-full aspect-video rounded-2xl shadow-2xl flex flex-col justify-center px-16 py-12 relative overflow-hidden"
               style={{ background: bgValue }}
             >
-              <h2 
-                className={`text-5xl font-bold text-white mb-6 drop-shadow-lg ${getAnimationClass()}`}
-                key={`title-${showAnimation}`}
-              >
-                {title || 'Slide Title'}
+              <h2 className={`text-5xl font-bold text-white mb-6 drop-shadow-lg ${getAnimationClass()}`}>
+                {displayedTitle || title || 'Slide Title'}
               </h2>
-              <div 
-                className={`text-2xl text-white/90 leading-relaxed drop-shadow ${getAnimationClass()}`}
-                style={{ animationDelay: '0.3s' }}
-                key={`content-${showAnimation}`}
-              >
-                {content || 'Slide content goes here'}
-              </div>
+              <p className={`text-2xl text-white/90 leading-relaxed drop-shadow ${getAnimationClass()}`}>
+                {displayedContent || content || 'Slide content goes here'}
+              </p>
             </div>
           </div>
         </div>
@@ -532,7 +591,7 @@ const EditorPage = () => {
                 ))}
               </select>
               <p className="text-xs text-gray-500 mt-2">
-                💡 Animations sync with audio playback
+                💡 Typing effect syncs character-by-character with audio
               </p>
             </div>
             
@@ -552,7 +611,7 @@ const EditorPage = () => {
               </select>
             </div>
             
-            {/* Audio Preview with Play Button */}
+            {/* Audio Preview */}
             {currentSlideData?.audio_url && (
               <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-3">
                 <div className="flex items-center justify-between mb-2">
@@ -565,7 +624,7 @@ const EditorPage = () => {
                   onClick={toggleAudioPlayback}
                   className="w-full py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors"
                 >
-                  {isPlaying ? '⏸ Pause' : '▶ Play with Animation'}
+                  {isPlaying ? '⏸ Pause' : '▶ Play Synced'}
                 </button>
               </div>
             )}
@@ -597,7 +656,12 @@ const EditorPage = () => {
         ref={audioRef}
         onEnded={() => {
           setIsPlaying(false);
-          setShowAnimation(false);
+          if (typingIntervalRef.current) {
+            clearInterval(typingIntervalRef.current);
+          }
+          // Show complete text when audio ends
+          setDisplayedTitle(title);
+          setDisplayedContent(content);
         }}
         onPause={() => setIsPlaying(false)}
         onPlay={() => setIsPlaying(true)}
@@ -613,10 +677,6 @@ const EditorPage = () => {
           from { transform: translateY(30px); opacity: 0; }
           to { transform: translateY(0); opacity: 1; }
         }
-        @keyframes typing {
-          from { max-width: 0; }
-          to { max-width: 100%; }
-        }
         @keyframes scaleUp {
           from { transform: scale(0.8); opacity: 0; }
           to { transform: scale(1); opacity: 1; }
@@ -626,14 +686,6 @@ const EditorPage = () => {
         }
         .animate-slideUp {
           animation: slideUp 0.8s ease-out forwards;
-        }
-        .animate-typing {
-          overflow: hidden;
-          display: inline-block;
-          max-width: 100%;
-          white-space: normal;
-          word-wrap: break-word;
-          animation: typing 3s steps(80) forwards;
         }
         .animate-scaleUp {
           animation: scaleUp 0.6s ease-out forwards;
