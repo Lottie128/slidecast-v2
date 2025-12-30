@@ -27,7 +27,7 @@ const app = express();
 
 // CORS - Allow both localhost and production
 const corsOptions = {
-  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+  origin: (origin: any, callback: any) => {
     // Allow requests with no origin (like mobile apps, Postman, or same-origin)
     if (!origin) return callback(null, true);
     
