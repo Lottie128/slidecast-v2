@@ -56,12 +56,14 @@ const EditorPage = () => {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [voices, setVoices] = useState<Voice[]>(DEFAULT_VOICES);
   const [selectedVoice, setSelectedVoice] = useState<string>('en-US-AriaNeural');
+  const [isPlaying, setIsPlaying] = useState(false);
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [bgValue, setBgValue] = useState('linear-gradient(135deg, #667eea 0%, #764ba2 100%)');
   
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     fetchProject();
@@ -75,18 +77,23 @@ const EditorPage = () => {
       setTitle(slide.title);
       setContent(slide.content);
       setBgValue(slide.background_gradient);
+      setIsPlaying(false);
+      
+      // Update audio source when slide changes
+      if (audioRef.current && slide.audio_url) {
+        audioRef.current.src = slide.audio_url;
+        audioRef.current.load();
+      }
     }
   }, [currentSlide, slides]);
 
   // Auto-save when title, content, or background changes
   useEffect(() => {
     if (slides[currentSlide]) {
-      // Clear existing timeout
       if (autoSaveTimeoutRef.current) {
         clearTimeout(autoSaveTimeoutRef.current);
       }
       
-      // Set new timeout for auto-save (500ms debounce)
       autoSaveTimeoutRef.current = setTimeout(() => {
         saveSlideQuietly();
       }, 500);
@@ -136,7 +143,6 @@ const EditorPage = () => {
       }
     } catch (error) {
       console.error('Error fetching voices, using defaults:', error);
-      // Keep default voices
     }
   };
 
@@ -159,7 +165,6 @@ const EditorPage = () => {
       
       setLastSaved(new Date());
       
-      // Update local state without refetching
       setSlides(prev => prev.map((s, i) => 
         i === currentSlide 
           ? { ...s, title, content, background_gradient: bgValue }
@@ -185,7 +190,7 @@ const EditorPage = () => {
   const addSlide = async () => {
     try {
       const token = localStorage.getItem('accessToken');
-      const response = await axios.post(
+      await axios.post(
         `/api/projects/${projectId}/slides`,
         {
           title: 'New Slide',
@@ -205,7 +210,6 @@ const EditorPage = () => {
   };
 
   const deleteSlide = async (slideId: string, event?: React.MouseEvent) => {
-    // Prevent triggering slide selection when clicking delete
     if (event) {
       event.stopPropagation();
     }
@@ -236,7 +240,6 @@ const EditorPage = () => {
   const generateAudio = async () => {
     if (!slides[currentSlide]) return;
     
-    // Validate content
     const textToSpeak = `${title}. ${content}`.trim();
     if (!textToSpeak || textToSpeak === '.') {
       alert('Please add title and content before generating audio');
@@ -246,8 +249,6 @@ const EditorPage = () => {
     setGenerating(true);
     try {
       const token = localStorage.getItem('accessToken');
-      
-      console.log('Generating audio with:', { voice: selectedVoice, textLength: textToSpeak.length });
       
       await axios.post(
         `/api/tts/generate`,
@@ -261,7 +262,7 @@ const EditorPage = () => {
       );
       
       await fetchSlides();
-      alert('Audio generated successfully!');
+      alert('Audio generated successfully! Click the play button to listen.');
     } catch (error: any) {
       console.error('Error generating audio:', error);
       const errorMsg = error.response?.data?.error || 'Failed to generate audio';
@@ -269,6 +270,24 @@ const EditorPage = () => {
     } finally {
       setGenerating(false);
     }
+  };
+
+  const toggleAudioPlayback = () => {
+    if (!audioRef.current) return;
+    
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.play();
+      setIsPlaying(true);
+    }
+  };
+
+  const playSlideAudio = (audioUrl: string, event: React.MouseEvent) => {
+    event.stopPropagation();
+    const audio = new Audio(audioUrl);
+    audio.play();
   };
 
   if (loading) {
@@ -281,6 +300,8 @@ const EditorPage = () => {
       </div>
     );
   }
+
+  const currentSlideData = slides[currentSlide];
 
   return (
     <div className="h-screen bg-gray-900 flex flex-col">
@@ -346,8 +367,15 @@ const EditorPage = () => {
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-bold text-white">#{index + 1}</span>
                     <div className="flex items-center gap-2">
+                      {/* Play Audio Button */}
                       {slide.audio_url && (
-                        <span className="text-green-400 text-xs">🎵</span>
+                        <button
+                          onClick={(e) => playSlideAudio(slide.audio_url!, e)}
+                          className="bg-green-500 hover:bg-green-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px]"
+                          title="Play audio"
+                        >
+                          ▶
+                        </button>
                       )}
                       {/* Delete X button */}
                       <button
@@ -382,7 +410,7 @@ const EditorPage = () => {
         <div className="flex-1 bg-gray-900 p-8 overflow-auto">
           <div className="max-w-5xl mx-auto">
             <div
-              className="w-full aspect-video rounded-2xl shadow-2xl flex flex-col justify-center px-16 py-12"
+              className="w-full aspect-video rounded-2xl shadow-2xl flex flex-col justify-center px-16 py-12 relative"
               style={{ background: bgValue }}
             >
               <h2 className="text-5xl font-bold text-white mb-6 drop-shadow-lg">
@@ -391,6 +419,27 @@ const EditorPage = () => {
               <p className="text-2xl text-white/90 leading-relaxed drop-shadow">
                 {content || 'Slide content goes here'}
               </p>
+              
+              {/* Audio Player Overlay */}
+              {currentSlideData?.audio_url && (
+                <div className="absolute bottom-8 left-0 right-0 flex justify-center">
+                  <div className="bg-black/60 backdrop-blur-sm rounded-full px-6 py-3 flex items-center gap-3">
+                    <button
+                      onClick={toggleAudioPlayback}
+                      className="w-10 h-10 rounded-full bg-white/90 hover:bg-white flex items-center justify-center transition-colors"
+                    >
+                      {isPlaying ? (
+                        <span className="text-xl">⏸</span>
+                      ) : (
+                        <span className="text-xl ml-1">▶</span>
+                      )}
+                    </button>
+                    <span className="text-white text-sm font-medium">
+                      {currentSlideData.audio_duration ? `${currentSlideData.audio_duration.toFixed(1)}s` : 'Audio Ready'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -460,6 +509,24 @@ const EditorPage = () => {
               </select>
             </div>
             
+            {/* Audio Preview */}
+            {currentSlideData?.audio_url && (
+              <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-green-400 text-sm font-semibold">🎵 Audio Ready</span>
+                  <span className="text-green-300 text-xs">
+                    {currentSlideData.audio_duration?.toFixed(1)}s
+                  </span>
+                </div>
+                <button
+                  onClick={toggleAudioPlayback}
+                  className="w-full py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  {isPlaying ? '⏸ Pause' : '▶ Play Audio'}
+                </button>
+              </div>
+            )}
+            
             {/* Audio Generation */}
             <div className="pt-4 border-t border-gray-700">
               <p className="text-sm text-gray-400 mb-3">
@@ -485,6 +552,14 @@ const EditorPage = () => {
           </div>
         </div>
       </div>
+      
+      {/* Hidden Audio Element */}
+      <audio
+        ref={audioRef}
+        onEnded={() => setIsPlaying(false)}
+        onPause={() => setIsPlaying(false)}
+        onPlay={() => setIsPlaying(true)}
+      />
     </div>
   );
 };
