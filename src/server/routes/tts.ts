@@ -5,7 +5,7 @@
 import { Router } from 'express';
 import { authenticateToken, type AuthRequest } from '../middleware/auth';
 import { generateAudio, getAvailableVoices } from '../services/ttsService';
-import { updateSlide } from '../db/queries';
+import { updateSlide, getSlidesByProjectId } from '../db/queries';
 import type { ApiResponse, TTSRequest, TTSResponse, TTSVoice } from '../../types';
 
 const router = Router();
@@ -39,7 +39,11 @@ router.post('/generate', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const { text, voice, rate, pitch, slideId }: TTSRequest & { slideId?: string } = req.body;
     
+    console.log('========== TTS GENERATION REQUEST ==========');
+    console.log('Request body:', { textLength: text?.length, voice, slideId });
+    
     if (!text || !voice) {
+      console.log('ERROR: Missing text or voice');
       return res.status(400).json({
         success: false,
         error: 'Text and voice are required',
@@ -53,28 +57,41 @@ router.post('/generate', authenticateToken, async (req: AuthRequest, res) => {
       } as ApiResponse);
     }
     
-    console.log('Generating audio:', { textLength: text.length, voice, slideId });
-    
+    console.log('Generating audio...');
     const result = await generateAudio({ text, voice, rate, pitch });
-    
-    console.log('Audio generated:', result);
+    console.log('Audio generated successfully:', result);
     
     // If slideId provided, update the slide with audio URL
     if (slideId) {
-      console.log('Updating slide with audio:', slideId);
-      await updateSlide(slideId, {
+      console.log('Updating slide with audio URL...');
+      console.log('SlideId:', slideId);
+      console.log('Update data:', { audioUrl: result.audioUrl, audioDuration: result.duration });
+      
+      const updated = await updateSlide(slideId, {
         audioUrl: result.audioUrl,
         audioDuration: result.duration,
       });
-      console.log('Slide updated successfully');
+      
+      if (updated) {
+        console.log('Slide updated successfully!');
+        console.log('Updated slide data:', updated);
+      } else {
+        console.error('Failed to update slide - updateSlide returned null');
+      }
+    } else {
+      console.log('No slideId provided, skipping slide update');
     }
+    
+    console.log('========== TTS GENERATION COMPLETE ==========');
     
     res.json({
       success: true,
       data: result,
     } as ApiResponse<TTSResponse>);
   } catch (error: any) {
-    console.error('TTS generation error:', error);
+    console.error('========== TTS GENERATION ERROR ==========');
+    console.error('Error:', error);
+    console.error('Stack:', error.stack);
     res.status(500).json({
       success: false,
       error: error.message,
