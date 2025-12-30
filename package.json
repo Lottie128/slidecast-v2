@@ -9,6 +9,7 @@
     "build:client": "vite build",
     "build:server": "tsc --project tsconfig.server.json",
     "preview": "vite preview",
+    "start": "node src/server/index.js",
     "server": "node src/server/index.js",
     "dev:server": "node --loader ts-node/esm src/server/index.ts",
     "db:migrate": "echo 'Database migration placeholder'"
