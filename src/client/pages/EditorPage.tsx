@@ -6,7 +6,7 @@ import AudioPanel from '../components/AudioPanel';
 import TemplateGallery from '../components/TemplateGallery';
 import ExportModal from '../components/ExportModal';
 
-// LAUNCH-READY VIDEO EDITOR - SAVE, PREVIEW, EXPORT!
+// LAUNCH-READY VIDEO EDITOR - SAVE, PREVIEW, EXPORT + TRANSITIONS!
 
 interface SlideElement {
   id: string;
@@ -43,6 +43,8 @@ interface Slide {
   duration: number;
   audioUrl?: string;
   audioText?: string;
+  transition?: 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'none';
+  transitionDuration?: number;
 }
 
 interface Project {
@@ -58,7 +60,7 @@ const EditorPage: React.FC = () => {
   const navigate = useNavigate();
   
   const [projectName, setProjectName] = useState('Untitled Project');
-  const [slides, setSlides] = useState<Slide[]>([{ id: 'slide-1', name: 'Slide 1', elements: [], background: '#ffffff', backgroundType: 'color', duration: 5 }]);
+  const [slides, setSlides] = useState<Slide[]>([{ id: 'slide-1', name: 'Slide 1', elements: [], background: '#ffffff', backgroundType: 'color', duration: 5, transition: 'fade', transitionDuration: 0.5 }]);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [selectedElements, setSelectedElements] = useState<string[]>([]);
   const [clipboard, setClipboard] = useState<SlideElement[]>([]);
@@ -71,7 +73,7 @@ const EditorPage: React.FC = () => {
   const [editing, setEditing] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [showGrid, setShowGrid] = useState(false);
-  const [rightPanel, setRightPanel] = useState<'properties' | 'effects' | 'animations' | 'audio' | 'background'>('properties');
+  const [rightPanel, setRightPanel] = useState<'properties' | 'effects' | 'animations' | 'audio' | 'background' | 'transition'>('properties');
   const [showTemplates, setShowTemplates] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [audioGenerating, setAudioGenerating] = useState(false);
@@ -86,7 +88,6 @@ const EditorPage: React.FC = () => {
   const bgImageInputRef = useRef<HTMLInputElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
 
-  // LOAD PROJECT FROM LOCALSTORAGE
   useEffect(() => {
     if (projectId && projectId !== 'new') {
       const savedProject = localStorage.getItem(`project_${projectId}`);
@@ -98,7 +99,6 @@ const EditorPage: React.FC = () => {
     }
   }, [projectId]);
 
-  // AUTO-SAVE PROJECT
   useEffect(() => {
     if (!projectId) return;
     const project: Project = {
@@ -110,7 +110,6 @@ const EditorPage: React.FC = () => {
     };
     localStorage.setItem(`project_${projectId}`, JSON.stringify(project));
     
-    // Update projects list
     const projectsList = JSON.parse(localStorage.getItem('projects') || '[]');
     const existingIndex = projectsList.findIndex((p: any) => p.id === projectId);
     const projectMeta = {
@@ -335,7 +334,7 @@ const EditorPage: React.FC = () => {
   };
 
   const addSlide = () => {
-    const newSlide: Slide = { id: `slide-${Date.now()}`, name: `Slide ${slides.length + 1}`, elements: [], background: '#ffffff', backgroundType: 'color', duration: 5 };
+    const newSlide: Slide = { id: `slide-${Date.now()}`, name: `Slide ${slides.length + 1}`, elements: [], background: '#ffffff', backgroundType: 'color', duration: 5, transition: 'fade', transitionDuration: 0.5 };
     setSlides([...slides, newSlide]);
     setCurrentSlideIndex(slides.length);
   };
@@ -350,7 +349,6 @@ const EditorPage: React.FC = () => {
     setContextMenu(null);
   };
 
-  // PREVIEW PLAYER
   const startPreview = () => {
     setPreviewing(true);
     setPreviewSlide(0);
@@ -371,7 +369,6 @@ const EditorPage: React.FC = () => {
     
     const slide = slides[index];
     
-    // Play audio if available
     if (slide.audioText) {
       const utterance = new SpeechSynthesisUtterance(slide.audioText);
       utterance.rate = 0.9;
@@ -379,7 +376,6 @@ const EditorPage: React.FC = () => {
       window.speechSynthesis.speak(utterance);
     }
     
-    // Auto-advance to next slide
     previewIntervalRef.current = setTimeout(() => {
       setPreviewSlide(index + 1);
       playSlide(index + 1);
@@ -399,12 +395,9 @@ const EditorPage: React.FC = () => {
     setAudioGenerating(true);
     
     try {
-      // Use browser Speech Synthesis
       const utterance = new SpeechSynthesisUtterance(combinedText);
       utterance.rate = 0.9;
       utterance.pitch = 1;
-      
-      // Play preview
       window.speechSynthesis.speak(utterance);
       
       const estimatedDuration = Math.max(3, Math.ceil(combinedText.length / 15));
@@ -633,14 +626,49 @@ const EditorPage: React.FC = () => {
 
         <aside className="w-72 bg-gray-800 border-l border-gray-700 overflow-y-auto flex-shrink-0">
           <div className="flex border-b border-gray-700">
-            {['properties', 'effects', 'animations', 'audio', 'background'].map((panel) => (
+            {['properties', 'effects', 'animations', 'audio', 'background', 'transition'].map((panel) => (
               <button key={panel} onClick={() => setRightPanel(panel as any)}
                 className={`flex-1 py-2 px-1 text-xs font-medium capitalize ${
                   rightPanel === panel ? 'bg-gray-700 text-white border-b-2 border-purple-500' : 'text-gray-400 hover:text-white'
-                }`}>{panel.slice(0, 4)}</button>
+                }`}>{panel === 'transition' ? '🎬' : panel.slice(0, 4)}</button>
             ))}
           </div>
           <div className="p-3">
+            {rightPanel === 'transition' && (
+              <div className="space-y-3">
+                <h4 className="text-xs font-semibold text-gray-300">🎬 Slide Transition</h4>
+                <div>
+                  <label className="text-xs text-gray-400 block mb-2">Transition Type</label>
+                  <select
+                    value={currentSlide.transition || 'none'}
+                    onChange={(e) => setSlides(prev => prev.map((slide, idx) => idx === currentSlideIndex ? { ...slide, transition: e.target.value as any } : slide))}
+                    className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded text-white text-sm"
+                  >
+                    <option value="none">None</option>
+                    <option value="fade">Fade</option>
+                    <option value="slide-left">Slide Left</option>
+                    <option value="slide-right">Slide Right</option>
+                    <option value="slide-up">Slide Up</option>
+                    <option value="slide-down">Slide Down</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Duration: {currentSlide.transitionDuration || 0.5}s</label>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="2"
+                    step="0.1"
+                    value={currentSlide.transitionDuration || 0.5}
+                    onChange={(e) => setSlides(prev => prev.map((slide, idx) => idx === currentSlideIndex ? { ...slide, transitionDuration: parseFloat(e.target.value) } : slide))}
+                    className="w-full"
+                  />
+                </div>
+                <div className="p-3 bg-blue-900/20 border border-blue-700 rounded">
+                  <p className="text-xs text-blue-300">💡 Transition plays when moving to the NEXT slide</p>
+                </div>
+              </div>
+            )}
             {rightPanel === 'background' && (
               <div className="space-y-3">
                 <h4 className="text-xs font-semibold text-gray-300">🎨 Background</h4>
@@ -730,7 +758,7 @@ const EditorPage: React.FC = () => {
             )}
             {rightPanel === 'effects' && selectedElement && <EffectsPanel element={selectedElement} onUpdate={(updates) => updateElement(selectedElement.id, updates)} />}
             {rightPanel === 'animations' && selectedElement && <AnimationPanel element={selectedElement} onUpdate={(updates) => updateElement(selectedElement.id, updates)} />}
-            {!selectedElement && rightPanel !== 'audio' && rightPanel !== 'background' && (
+            {!selectedElement && rightPanel !== 'audio' && rightPanel !== 'background' && rightPanel !== 'transition' && (
               <p className="text-gray-500 text-xs text-center py-12">Select an element</p>
             )}
           </div>
@@ -755,6 +783,7 @@ const EditorPage: React.FC = () => {
                   style={{ background: slide.background }}>
                   {slide.elements.length || '+'}
                   {slide.audioText && <span className="absolute top-0 right-0 text-xs">🎤</span>}
+                  {slide.transition && slide.transition !== 'none' && <span className="absolute bottom-0 left-0 text-xs">🎬</span>}
                 </div>
                 <div className="text-xs text-gray-400 text-center mt-0.5">{index + 1}</div>
               </div>
