@@ -240,3 +240,25 @@ export const reorderSlides = async (projectId: string, slideIds: string[]): Prom
     client.release();
   }
 };
+
+// ============================================
+// VIDEO JOB QUERIES (Stub implementations)
+// ============================================
+
+export const createVideoJob = async (projectId: string, totalSlides: number): Promise<any> => {
+  // Stub - would create a video_jobs table entry in production
+  console.log('createVideoJob stub called:', { projectId, totalSlides });
+  return { projectId, totalSlides, status: 'queued' };
+};
+
+export const getVideoJobByProjectId = async (projectId: string): Promise<any | null> => {
+  // Stub - would fetch from video_jobs table in production
+  console.log('getVideoJobByProjectId stub called:', { projectId });
+  return null;
+};
+
+export const updateVideoJob = async (projectId: string, updates: any): Promise<any | null> => {
+  // Stub - would update video_jobs table entry in production
+  console.log('updateVideoJob stub called:', { projectId, updates });
+  return { projectId, ...updates };
+};
