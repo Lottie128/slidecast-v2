@@ -10,7 +10,7 @@ interface Slide {
   background_gradient: string;
   audio_url?: string;
   audio_duration?: number | string;
-  animation_type?: string; // Animation for text
+  animation_type?: string;
 }
 
 interface Project {
@@ -73,6 +73,7 @@ const EditorPage = () => {
   const [voices, setVoices] = useState<Voice[]>(DEFAULT_VOICES);
   const [selectedVoice, setSelectedVoice] = useState<string>('en-US-AriaNeural');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [showAnimation, setShowAnimation] = useState(false);
   const [animationType, setAnimationType] = useState<string>('fade');
 
   const [title, setTitle] = useState('');
@@ -96,6 +97,7 @@ const EditorPage = () => {
       setBgValue(slide.background_gradient);
       setAnimationType(slide.animation_type || 'fade');
       setIsPlaying(false);
+      setShowAnimation(false);
       
       // Update audio source when slide changes
       if (audioRef.current && slide.audio_url) {
@@ -299,7 +301,10 @@ const EditorPage = () => {
     if (isPlaying) {
       audioRef.current.pause();
       setIsPlaying(false);
+      setShowAnimation(false);
     } else {
+      // Trigger animations when audio starts
+      setShowAnimation(true);
       audioRef.current.play();
       setIsPlaying(true);
     }
@@ -324,8 +329,9 @@ const EditorPage = () => {
 
   const currentSlideData = slides[currentSlide];
 
-  // Get animation CSS class
+  // Get animation CSS class - only when playing
   const getAnimationClass = () => {
+    if (!showAnimation) return '';
     switch (animationType) {
       case 'fade': return 'animate-fadeIn';
       case 'slide': return 'animate-slideUp';
@@ -445,12 +451,19 @@ const EditorPage = () => {
               className="w-full aspect-video rounded-2xl shadow-2xl flex flex-col justify-center px-16 py-12 relative overflow-hidden"
               style={{ background: bgValue }}
             >
-              <h2 className={`text-5xl font-bold text-white mb-6 drop-shadow-lg ${getAnimationClass()}`}>
+              <h2 
+                className={`text-5xl font-bold text-white mb-6 drop-shadow-lg ${getAnimationClass()}`}
+                key={`title-${showAnimation}`}
+              >
                 {title || 'Slide Title'}
               </h2>
-              <p className={`text-2xl text-white/90 leading-relaxed drop-shadow ${getAnimationClass()}`} style={{ animationDelay: '0.3s' }}>
+              <div 
+                className={`text-2xl text-white/90 leading-relaxed drop-shadow ${getAnimationClass()}`}
+                style={{ animationDelay: '0.3s' }}
+                key={`content-${showAnimation}`}
+              >
                 {content || 'Slide content goes here'}
-              </p>
+              </div>
             </div>
           </div>
         </div>
@@ -518,6 +531,9 @@ const EditorPage = () => {
                   </option>
                 ))}
               </select>
+              <p className="text-xs text-gray-500 mt-2">
+                💡 Animations sync with audio playback
+              </p>
             </div>
             
             {/* Voice Selection */}
@@ -549,7 +565,7 @@ const EditorPage = () => {
                   onClick={toggleAudioPlayback}
                   className="w-full py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors"
                 >
-                  {isPlaying ? '⏸ Pause' : '▶ Play Audio'}
+                  {isPlaying ? '⏸ Pause' : '▶ Play with Animation'}
                 </button>
               </div>
             )}
@@ -579,7 +595,10 @@ const EditorPage = () => {
       {/* Hidden Audio Element */}
       <audio
         ref={audioRef}
-        onEnded={() => setIsPlaying(false)}
+        onEnded={() => {
+          setIsPlaying(false);
+          setShowAnimation(false);
+        }}
         onPause={() => setIsPlaying(false)}
         onPlay={() => setIsPlaying(true)}
       />
@@ -595,8 +614,8 @@ const EditorPage = () => {
           to { transform: translateY(0); opacity: 1; }
         }
         @keyframes typing {
-          from { width: 0; }
-          to { width: 100%; }
+          from { max-width: 0; }
+          to { max-width: 100%; }
         }
         @keyframes scaleUp {
           from { transform: scale(0.8); opacity: 0; }
@@ -610,8 +629,11 @@ const EditorPage = () => {
         }
         .animate-typing {
           overflow: hidden;
-          white-space: nowrap;
-          animation: typing 2s steps(40) forwards;
+          display: inline-block;
+          max-width: 100%;
+          white-space: normal;
+          word-wrap: break-word;
+          animation: typing 3s steps(80) forwards;
         }
         .animate-scaleUp {
           animation: scaleUp 0.6s ease-out forwards;
