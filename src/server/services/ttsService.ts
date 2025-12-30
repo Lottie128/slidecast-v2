@@ -37,20 +37,34 @@ export const generateAudio = async (request: TTSRequest): Promise<TTSResponse> =
     
     // Generate unique filename
     const timestamp = Date.now();
-    const filename = `tts_${timestamp}.mp3`;
+    const random = Math.random().toString(36).substring(7);
+    const filename = `audio_${timestamp}_${random}.mp3`;
     const filepath = path.join(STORAGE_DIR, filename);
     
     // Validate voice
     const selectedVoice = voice || 'en-US-AriaNeural';
     
-    // Generate audio using edge-tts CLI
-    // Install with: pip install edge-tts
-    const rateParam = rate !== '1.0' ? `--rate=${rate}` : '';
-    const pitchParam = pitch !== '0' ? `--pitch=${pitch}` : '';
+    // Convert rate to percentage (1.0 = +0%, 1.5 = +50%, 0.8 = -20%)
+    const rateNum = parseFloat(rate);
+    const ratePercent = Math.round((rateNum - 1.0) * 100);
+    const rateParam = ratePercent !== 0 ? `--rate="${ratePercent > 0 ? '+' : ''}${ratePercent}%"` : '';
     
-    const command = `edge-tts --voice "${selectedVoice}" ${rateParam} ${pitchParam} --text "${text.replace(/"/g, '\\"')}" --write-media "${filepath}"`;
+    // Convert pitch to Hz (0 = +0Hz, positive/negative integers)
+    const pitchNum = parseFloat(pitch);
+    const pitchParam = pitchNum !== 0 ? `--pitch="${pitchNum > 0 ? '+' : ''}${pitchNum}Hz"` : '';
     
-    console.log('Generating TTS audio:', { voice: selectedVoice, textLength: text.length });
+    // Escape text for shell
+    const escapedText = text.replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/`/g, '\\`');
+    
+    // Use python3 -m edge_tts instead of edge-tts command
+    const command = `python3 -m edge_tts --voice "${selectedVoice}" ${rateParam} ${pitchParam} --text "${escapedText}" --write-media "${filepath}"`;
+    
+    console.log('Generating TTS audio:', { 
+      voice: selectedVoice, 
+      rate: rateNum, 
+      pitch: pitchNum,
+      textLength: text.length 
+    });
     
     await execAsync(command);
     
@@ -62,10 +76,12 @@ export const generateAudio = async (request: TTSRequest): Promise<TTSResponse> =
       );
       duration = parseFloat(stdout.trim());
     } catch (err) {
-      console.warn('Could not get audio duration:', err);
+      console.warn('Could not get audio duration, using default 5s');
     }
     
     const audioUrl = `/storage/audio/${filename}`;
+    
+    console.log('✅ Audio generated:', { audioUrl, duration });
     
     return {
       audioUrl,
