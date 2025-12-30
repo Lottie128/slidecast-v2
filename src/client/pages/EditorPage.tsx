@@ -9,7 +9,7 @@ interface Slide {
   content: string;
   background_gradient: string;
   audio_url?: string;
-  audio_duration?: number;
+  audio_duration?: number | string; // Can be string from DB
 }
 
 interface Project {
@@ -43,6 +43,13 @@ const DEFAULT_VOICES: Voice[] = [
   { id: 'en-AU-NatashaNeural', name: 'Natasha (AU Female)', gender: 'Female', locale: 'en-AU' },
   { id: 'en-IN-NeerjaNeural', name: 'Neerja (IN Female)', gender: 'Female', locale: 'en-IN' },
 ];
+
+// Helper to format duration
+const formatDuration = (duration?: number | string): string => {
+  if (!duration) return 'Audio Ready';
+  const num = typeof duration === 'string' ? parseFloat(duration) : duration;
+  return isNaN(num) ? 'Audio Ready' : `${num.toFixed(1)}s`;
+};
 
 const EditorPage = () => {
   const { projectId } = useParams();
@@ -259,7 +266,7 @@ const EditorPage = () => {
           voice: selectedVoice,
           rate: 1.0,
           pitch: 0,
-          slideId: slides[currentSlide].id, // Pass slideId to backend
+          slideId: slides[currentSlide].id,
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -439,7 +446,7 @@ const EditorPage = () => {
                       )}
                     </button>
                     <span className="text-white text-sm font-medium">
-                      {currentSlideData.audio_duration ? `${currentSlideData.audio_duration.toFixed(1)}s` : 'Audio Ready'}
+                      {formatDuration(currentSlideData.audio_duration)}
                     </span>
                   </div>
                 </div>
@@ -519,7 +526,7 @@ const EditorPage = () => {
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-green-400 text-sm font-semibold">🎵 Audio Ready</span>
                   <span className="text-green-300 text-xs">
-                    {currentSlideData.audio_duration?.toFixed(1)}s
+                    {formatDuration(currentSlideData.audio_duration)}
                   </span>
                 </div>
                 <button
