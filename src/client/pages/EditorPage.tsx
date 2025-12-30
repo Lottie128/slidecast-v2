@@ -42,8 +42,9 @@ const EditorPage = () => {
   const [speakerNotes, setSpeakerNotes] = useState('');
   const [bgValue, setBgValue] = useState('linear-gradient(135deg, #667eea 0%, #764ba2 100%)');
   
-  // Track if we're loading a slide to prevent auto-save trigger
-  const isLoadingSlide = useRef(false);
+  // Track the last saved state to compare
+  const lastSavedData = useRef({ title: '', content: '', bgValue: '' });
+  const isSwitchingSlides = useRef(false);
 
   useEffect(() => {
     fetchProject();
@@ -52,37 +53,47 @@ const EditorPage = () => {
 
   // Load slide data when switching slides
   useEffect(() => {
-    isLoadingSlide.current = true; // Set flag to prevent auto-save
-    
     if (slides[currentSlide]) {
       const slide = slides[currentSlide];
       setTitle(slide.title);
       setContent(slide.content || '');
       setSpeakerNotes('');
       setBgValue(slide.background_gradient);
+      
+      // Update last saved data reference
+      lastSavedData.current = {
+        title: slide.title,
+        content: slide.content || '',
+        bgValue: slide.background_gradient,
+      };
     } else {
       setTitle('');
       setContent('');
       setSpeakerNotes('');
       setBgValue('linear-gradient(135deg, #667eea 0%, #764ba2 100%)');
+      
+      lastSavedData.current = { title: '', content: '', bgValue: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' };
     }
-    
-    // Allow auto-save after a short delay
-    setTimeout(() => {
-      isLoadingSlide.current = false;
-    }, 100);
   }, [currentSlide, slides]);
 
-  // Auto-save with debounce (only when user edits, not when loading)
+  // Auto-save only when actual changes are made
   useEffect(() => {
-    if (!slides[currentSlide] || isLoadingSlide.current) return;
+    if (!slides[currentSlide] || isSwitchingSlides.current) return;
+    
+    // Check if data actually changed from last saved state
+    const hasChanged = 
+      title !== lastSavedData.current.title ||
+      content !== lastSavedData.current.content ||
+      bgValue !== lastSavedData.current.bgValue;
+    
+    if (!hasChanged) return;
     
     const timeoutId = setTimeout(() => {
       saveSlide();
-    }, 1000); // Auto-save 1 second after user stops typing
+    }, 1000);
 
     return () => clearTimeout(timeoutId);
-  }, [title, content, speakerNotes, bgValue]);
+  }, [title, content, bgValue]);
 
   const fetchProject = async () => {
     try {
@@ -131,6 +142,8 @@ const EditorPage = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
+      // Update last saved data
+      lastSavedData.current = { title, content, bgValue };
       setLastSaved(new Date());
       
       // Update local slides array
@@ -153,11 +166,12 @@ const EditorPage = () => {
     try {
       // Save current slide before adding new one
       if (slides[currentSlide]) {
+        isSwitchingSlides.current = true;
         await saveSlide();
       }
       
       const token = localStorage.getItem('accessToken');
-      const response = await axios.post(
+      await axios.post(
         `/api/slides`,
         {
           projectId: projectId,
@@ -172,13 +186,20 @@ const EditorPage = () => {
       
       await fetchSlides();
       setCurrentSlide(slides.length);
+      
+      setTimeout(() => {
+        isSwitchingSlides.current = false;
+      }, 200);
     } catch (error: any) {
       console.error('Error adding slide:', error);
       alert(`Failed to add slide: ${error.response?.data?.error || error.message}`);
+      isSwitchingSlides.current = false;
     }
   };
 
-  const deleteSlide = async (slideId: string) => {
+  const deleteSlide = async (slideId: string, index: number, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent slide selection
+    
     if (!confirm('Delete this slide?')) return;
     
     try {
@@ -188,8 +209,12 @@ const EditorPage = () => {
       });
       
       await fetchSlides();
+      
+      // Adjust current slide index
       if (currentSlide >= slides.length - 1) {
         setCurrentSlide(Math.max(0, slides.length - 2));
+      } else if (index <= currentSlide) {
+        setCurrentSlide(Math.max(0, currentSlide - 1));
       }
     } catch (error) {
       console.error('Error deleting slide:', error);
@@ -218,11 +243,19 @@ const EditorPage = () => {
   };
 
   const handleSlideSwitch = async (index: number) => {
+    if (index === currentSlide) return;
+    
     // Save current slide before switching
     if (slides[currentSlide]) {
+      isSwitchingSlides.current = true;
       await saveSlide();
     }
+    
     setCurrentSlide(index);
+    
+    setTimeout(() => {
+      isSwitchingSlides.current = false;
+    }, 200);
   };
 
   if (loading) {
@@ -277,26 +310,39 @@ const EditorPage = () => {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Slide List (Left Sidebar) */}
-        <div className="w-64 bg-gray-800 border-r border-gray-700 overflow-y-auto">
-          <div className="p-4">
+        <div className="w-64 bg-gray-800 border-r border-gray-700 flex flex-col">
+          {/* Sticky Add Button */}
+          <div className="p-4 bg-gray-800 border-b border-gray-700 sticky top-0 z-10">
             <button
               onClick={addSlide}
-              className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors mb-4"
+              className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors"
             >
               ➕ Add Slide
             </button>
-            
+          </div>
+          
+          {/* Scrollable Slides */}
+          <div className="flex-1 overflow-y-auto p-4 pt-2">
             <div className="space-y-2">
               {slides.map((slide, index) => (
                 <div
                   key={slide.id}
                   onClick={() => handleSlideSwitch(index)}
-                  className={`rounded-lg cursor-pointer transition-all overflow-hidden ${
+                  className={`rounded-lg cursor-pointer transition-all overflow-hidden relative group ${
                     currentSlide === index
                       ? 'ring-2 ring-purple-500 shadow-lg shadow-purple-500/50'
                       : 'hover:ring-1 hover:ring-gray-600'
                   }`}
                 >
+                  {/* Delete Button (appears on hover) */}
+                  <button
+                    onClick={(e) => deleteSlide(slide.id, index, e)}
+                    className="absolute top-2 right-2 z-10 bg-red-600 hover:bg-red-700 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Delete slide"
+                  >
+                    ×
+                  </button>
+                  
                   {/* Slide Preview */}
                   <div
                     className="w-full aspect-video p-3 flex flex-col justify-center"
@@ -430,10 +476,10 @@ const EditorPage = () => {
                   </button>
                   
                   <button
-                    onClick={() => deleteSlide(slides[currentSlide].id)}
+                    onClick={() => deleteSlide(slides[currentSlide].id, currentSlide, {} as any)}
                     className="w-full py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 font-medium rounded-lg transition-colors"
                   >
-                    🗑️ Delete Slide
+                    🗑️ Delete This Slide
                   </button>
                 </div>
               </>
