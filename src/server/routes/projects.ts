@@ -10,8 +10,10 @@ import {
   getProjectsByUserId,
   updateProject,
   deleteProject,
+  createSlide,
+  getSlidesByProjectId,
 } from '../db/queries';
-import type { ApiResponse, Project } from '../../types';
+import type { ApiResponse, Project, Slide } from '../../types';
 
 const router = Router();
 
@@ -177,6 +179,81 @@ router.delete('/:id', async (req: AuthRequest, res) => {
     } as ApiResponse);
   } catch (error: any) {
     console.error('Delete project error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    } as ApiResponse);
+  }
+});
+
+// ============================================
+// NESTED SLIDE ROUTES
+// ============================================
+
+/**
+ * POST /api/projects/:id/slides
+ * Create a new slide in a project
+ */
+router.post('/:id/slides', async (req: AuthRequest, res) => {
+  try {
+    const userId = req.userId!;
+    const projectId = req.params.id;
+    const slideData = req.body;
+    
+    // Verify project ownership
+    const project = await getProjectById(projectId);
+    if (!project || (project as any).user_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied',
+      } as ApiResponse);
+    }
+    
+    // Add projectId to slide data
+    const slide = await createSlide({
+      ...slideData,
+      projectId,
+    });
+    
+    res.status(201).json({
+      success: true,
+      data: slide,
+    } as ApiResponse<Slide>);
+  } catch (error: any) {
+    console.error('Create slide error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /api/projects/:id/slides
+ * Get all slides for a project
+ */
+router.get('/:id/slides', async (req: AuthRequest, res) => {
+  try {
+    const userId = req.userId!;
+    const projectId = req.params.id;
+    
+    // Verify project ownership
+    const project = await getProjectById(projectId);
+    if (!project || (project as any).user_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied',
+      } as ApiResponse);
+    }
+    
+    const slides = await getSlidesByProjectId(projectId);
+    
+    res.json({
+      success: true,
+      data: slides,
+    } as ApiResponse<Slide[]>);
+  } catch (error: any) {
+    console.error('Get slides error:', error);
     res.status(500).json({
       success: false,
       error: error.message,
