@@ -21,7 +21,8 @@ interface Project {
 interface Voice {
   id: string;
   name: string;
-  languageCode: string;
+  gender?: string;
+  locale?: string;
 }
 
 const gradientPresets = [
@@ -31,6 +32,16 @@ const gradientPresets = [
   { name: 'Fire', value: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
   { name: 'Sky', value: 'linear-gradient(135deg, #48c6ef 0%, #6f86d6 100%)' },
   { name: 'Purple', value: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)' },
+];
+
+// Default Edge TTS voices (fallback)
+const DEFAULT_VOICES: Voice[] = [
+  { id: 'en-US-AriaNeural', name: 'Aria (US Female)', gender: 'Female', locale: 'en-US' },
+  { id: 'en-US-GuyNeural', name: 'Guy (US Male)', gender: 'Male', locale: 'en-US' },
+  { id: 'en-GB-SoniaNeural', name: 'Sonia (UK Female)', gender: 'Female', locale: 'en-GB' },
+  { id: 'en-GB-RyanNeural', name: 'Ryan (UK Male)', gender: 'Male', locale: 'en-GB' },
+  { id: 'en-AU-NatashaNeural', name: 'Natasha (AU Female)', gender: 'Female', locale: 'en-AU' },
+  { id: 'en-IN-NeerjaNeural', name: 'Neerja (IN Female)', gender: 'Female', locale: 'en-IN' },
 ];
 
 const EditorPage = () => {
@@ -43,8 +54,8 @@ const EditorPage = () => {
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const [voices, setVoices] = useState<Voice[]>([]);
-  const [selectedVoice, setSelectedVoice] = useState<string>('en-US-Standard-A');
+  const [voices, setVoices] = useState<Voice[]>(DEFAULT_VOICES);
+  const [selectedVoice, setSelectedVoice] = useState<string>('en-US-AriaNeural');
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -119,9 +130,13 @@ const EditorPage = () => {
   const fetchVoices = async () => {
     try {
       const response = await axios.get('/api/tts/voices');
-      setVoices(response.data.data || []);
+      const fetchedVoices = response.data.data || [];
+      if (fetchedVoices.length > 0) {
+        setVoices(fetchedVoices);
+      }
     } catch (error) {
-      console.error('Error fetching voices:', error);
+      console.error('Error fetching voices, using defaults:', error);
+      // Keep default voices
     }
   };
 
@@ -232,13 +247,15 @@ const EditorPage = () => {
     try {
       const token = localStorage.getItem('accessToken');
       
+      console.log('Generating audio with:', { voice: selectedVoice, textLength: textToSpeak.length });
+      
       await axios.post(
         `/api/tts/generate`,
         { 
           text: textToSpeak,
           voice: selectedVoice,
           rate: 1.0,
-          pitch: 0.0,
+          pitch: 0,
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -435,15 +452,11 @@ const EditorPage = () => {
                 onChange={(e) => setSelectedVoice(e.target.value)}
                 className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
               >
-                {voices.length > 0 ? (
-                  voices.map((voice) => (
-                    <option key={voice.id} value={voice.id}>
-                      {voice.name}
-                    </option>
-                  ))
-                ) : (
-                  <option value="en-US-Standard-A">English (US) - Female</option>
-                )}
+                {voices.map((voice) => (
+                  <option key={voice.id} value={voice.id}>
+                    {voice.name}
+                  </option>
+                ))}
               </select>
             </div>
             
