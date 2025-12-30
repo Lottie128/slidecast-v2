@@ -9,7 +9,8 @@ interface Slide {
   content: string;
   background_gradient: string;
   audio_url?: string;
-  audio_duration?: number | string; // Can be string from DB
+  audio_duration?: number | string;
+  animation_type?: string; // Animation for text
 }
 
 interface Project {
@@ -32,6 +33,14 @@ const gradientPresets = [
   { name: 'Fire', value: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
   { name: 'Sky', value: 'linear-gradient(135deg, #48c6ef 0%, #6f86d6 100%)' },
   { name: 'Purple', value: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)' },
+];
+
+const animationTypes = [
+  { value: 'none', label: 'None' },
+  { value: 'fade', label: 'Fade In' },
+  { value: 'slide', label: 'Slide Up' },
+  { value: 'typing', label: 'Typing Effect' },
+  { value: 'scale', label: 'Scale Up' },
 ];
 
 // Default Edge TTS voices (fallback)
@@ -64,6 +73,7 @@ const EditorPage = () => {
   const [voices, setVoices] = useState<Voice[]>(DEFAULT_VOICES);
   const [selectedVoice, setSelectedVoice] = useState<string>('en-US-AriaNeural');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [animationType, setAnimationType] = useState<string>('fade');
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -84,6 +94,7 @@ const EditorPage = () => {
       setTitle(slide.title);
       setContent(slide.content);
       setBgValue(slide.background_gradient);
+      setAnimationType(slide.animation_type || 'fade');
       setIsPlaying(false);
       
       // Update audio source when slide changes
@@ -94,7 +105,7 @@ const EditorPage = () => {
     }
   }, [currentSlide, slides]);
 
-  // Auto-save when title, content, or background changes
+  // Auto-save when title, content, background, or animation changes
   useEffect(() => {
     if (slides[currentSlide]) {
       if (autoSaveTimeoutRef.current) {
@@ -111,7 +122,7 @@ const EditorPage = () => {
         clearTimeout(autoSaveTimeoutRef.current);
       }
     };
-  }, [title, content, bgValue]);
+  }, [title, content, bgValue, animationType]);
 
   const fetchProject = async () => {
     try {
@@ -162,6 +173,7 @@ const EditorPage = () => {
         title,
         content,
         backgroundGradient: bgValue,
+        animationType,
       };
 
       await axios.patch(
@@ -174,7 +186,7 @@ const EditorPage = () => {
       
       setSlides(prev => prev.map((s, i) => 
         i === currentSlide 
-          ? { ...s, title, content, background_gradient: bgValue }
+          ? { ...s, title, content, background_gradient: bgValue, animation_type: animationType }
           : s
       ));
     } catch (error) {
@@ -204,6 +216,7 @@ const EditorPage = () => {
           content: 'Click to edit content',
           background_type: 'gradient',
           background_value: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          animation_type: 'fade',
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -257,8 +270,6 @@ const EditorPage = () => {
     try {
       const token = localStorage.getItem('accessToken');
       
-      console.log('Generating audio for slide:', slides[currentSlide].id);
-      
       await axios.post(
         `/api/tts/generate`,
         { 
@@ -271,9 +282,8 @@ const EditorPage = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
-      // Refetch slides to get updated audio_url
       await fetchSlides();
-      alert('Audio generated successfully! Click the play button to listen.');
+      alert('Audio generated successfully!');
     } catch (error: any) {
       console.error('Error generating audio:', error);
       const errorMsg = error.response?.data?.error || 'Failed to generate audio';
@@ -313,6 +323,17 @@ const EditorPage = () => {
   }
 
   const currentSlideData = slides[currentSlide];
+
+  // Get animation CSS class
+  const getAnimationClass = () => {
+    switch (animationType) {
+      case 'fade': return 'animate-fadeIn';
+      case 'slide': return 'animate-slideUp';
+      case 'typing': return 'animate-typing';
+      case 'scale': return 'animate-scaleUp';
+      default: return '';
+    }
+  };
 
   return (
     <div className="h-screen bg-gray-900 flex flex-col">
@@ -399,7 +420,7 @@ const EditorPage = () => {
                     </div>
                   </div>
                   
-                  {/* Thumbnail Preview with actual content */}
+                  {/* Thumbnail Preview */}
                   <div
                     className="w-full h-20 rounded mb-2 flex flex-col justify-center px-2 py-2 overflow-hidden"
                     style={{ background: slide.background_gradient }}
@@ -421,36 +442,15 @@ const EditorPage = () => {
         <div className="flex-1 bg-gray-900 p-8 overflow-auto">
           <div className="max-w-5xl mx-auto">
             <div
-              className="w-full aspect-video rounded-2xl shadow-2xl flex flex-col justify-center px-16 py-12 relative"
+              className="w-full aspect-video rounded-2xl shadow-2xl flex flex-col justify-center px-16 py-12 relative overflow-hidden"
               style={{ background: bgValue }}
             >
-              <h2 className="text-5xl font-bold text-white mb-6 drop-shadow-lg">
+              <h2 className={`text-5xl font-bold text-white mb-6 drop-shadow-lg ${getAnimationClass()}`}>
                 {title || 'Slide Title'}
               </h2>
-              <p className="text-2xl text-white/90 leading-relaxed drop-shadow">
+              <p className={`text-2xl text-white/90 leading-relaxed drop-shadow ${getAnimationClass()}`} style={{ animationDelay: '0.3s' }}>
                 {content || 'Slide content goes here'}
               </p>
-              
-              {/* Audio Player Overlay */}
-              {currentSlideData?.audio_url && (
-                <div className="absolute bottom-8 left-0 right-0 flex justify-center">
-                  <div className="bg-black/60 backdrop-blur-sm rounded-full px-6 py-3 flex items-center gap-3">
-                    <button
-                      onClick={toggleAudioPlayback}
-                      className="w-10 h-10 rounded-full bg-white/90 hover:bg-white flex items-center justify-center transition-colors"
-                    >
-                      {isPlaying ? (
-                        <span className="text-xl">⏸</span>
-                      ) : (
-                        <span className="text-xl ml-1">▶</span>
-                      )}
-                    </button>
-                    <span className="text-white text-sm font-medium">
-                      {formatDuration(currentSlideData.audio_duration)}
-                    </span>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -504,6 +504,22 @@ const EditorPage = () => {
               </div>
             </div>
             
+            {/* Text Animation */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-300 mb-2">Text Animation</label>
+              <select
+                value={animationType}
+                onChange={(e) => setAnimationType(e.target.value)}
+                className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
+              >
+                {animationTypes.map((anim) => (
+                  <option key={anim.value} value={anim.value}>
+                    {anim.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
             {/* Voice Selection */}
             <div>
               <label className="block text-sm font-semibold text-gray-300 mb-2">AI Voice</label>
@@ -520,7 +536,7 @@ const EditorPage = () => {
               </select>
             </div>
             
-            {/* Audio Preview */}
+            {/* Audio Preview with Play Button */}
             {currentSlideData?.audio_url && (
               <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-3">
                 <div className="flex items-center justify-between mb-2">
@@ -540,10 +556,6 @@ const EditorPage = () => {
             
             {/* Audio Generation */}
             <div className="pt-4 border-t border-gray-700">
-              <p className="text-sm text-gray-400 mb-3">
-                💡 Audio will be generated from the current slide's title and content
-              </p>
-              
               <button
                 onClick={generateAudio}
                 disabled={generating || !slides[currentSlide]}
@@ -571,6 +583,40 @@ const EditorPage = () => {
         onPause={() => setIsPlaying(false)}
         onPlay={() => setIsPlaying(true)}
       />
+      
+      {/* Animation Styles */}
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes slideUp {
+          from { transform: translateY(30px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes typing {
+          from { width: 0; }
+          to { width: 100%; }
+        }
+        @keyframes scaleUp {
+          from { transform: scale(0.8); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
+        }
+        .animate-fadeIn {
+          animation: fadeIn 1s ease-out forwards;
+        }
+        .animate-slideUp {
+          animation: slideUp 0.8s ease-out forwards;
+        }
+        .animate-typing {
+          overflow: hidden;
+          white-space: nowrap;
+          animation: typing 2s steps(40) forwards;
+        }
+        .animate-scaleUp {
+          animation: scaleUp 0.6s ease-out forwards;
+        }
+      `}</style>
     </div>
   );
 };
