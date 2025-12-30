@@ -5,14 +5,14 @@ import axios from 'axios';
 interface SlideElement {
   id: string;
   type: 'text' | 'image' | 'shape';
-  x: number;      // 0-100 percentage
-  y: number;      // 0-100 percentage
-  width: number;  // 0-100 percentage
-  height: number; // 0-100 percentage
+  x: number;
+  y: number;
+  width: number;
+  height: number;
   rotation?: number;
   zIndex?: number;
+  readingOrder: number; // NEW: Order for TTS and animations
   
-  // For text elements
   textContent?: string;
   textType?: 'title' | 'body' | 'bullet' | 'caption' | 'custom';
   fontSize?: number;
@@ -20,20 +20,17 @@ interface SlideElement {
   fontWeight?: string;
   fontFamily?: string;
   
-  // For image elements
   imageUrl?: string;
   imagePath?: string;
   
-  // For shapes
   shapeType?: 'rectangle' | 'circle' | 'triangle';
   backgroundColor?: string;
   
-  // Animation - per element
   animation?: {
     type: 'fade-in' | 'slide-in' | 'scale-in' | 'typing' | 'none';
     startMs: number;
     durationMs: number;
-    delay?: number; // Stagger offset
+    delay?: number;
   };
 }
 
@@ -46,8 +43,6 @@ interface Slide {
   audio_duration?: number | string;
   is_cover?: boolean;
   elements?: SlideElement[];
-  
-  // Legacy fields for migration (will be removed)
   title?: string;
   content?: string;
   animation_type?: string;
@@ -80,35 +75,35 @@ const slideTemplates = [
     name: 'Title Slide',
     icon: '📖',
     elements: [
-      { type: 'text', textType: 'title', textContent: 'Slide Title', x: 20, y: 35, width: 60, height: 15, fontSize: 56, color: '#ffffff', fontWeight: 'bold', zIndex: 1 },
-      { type: 'text', textType: 'caption', textContent: 'Your subtitle here', x: 20, y: 52, width: 60, height: 8, fontSize: 24, color: '#e0e0e0', fontWeight: 'normal', zIndex: 1 },
+      { type: 'text', textType: 'title', textContent: 'Slide Title', x: 20, y: 35, width: 60, height: 15, fontSize: 56, color: '#ffffff', fontWeight: 'bold', zIndex: 1, readingOrder: 1 },
+      { type: 'text', textType: 'caption', textContent: 'Your subtitle here', x: 20, y: 52, width: 60, height: 8, fontSize: 24, color: '#e0e0e0', fontWeight: 'normal', zIndex: 1, readingOrder: 2 },
     ],
   },
   {
     name: 'Title + Body',
     icon: '📝',
     elements: [
-      { type: 'text', textType: 'title', textContent: 'Slide Title', x: 10, y: 10, width: 80, height: 12, fontSize: 48, color: '#ffffff', fontWeight: 'bold', zIndex: 1 },
-      { type: 'text', textType: 'body', textContent: 'Your main content goes here. Edit this text to describe your point.', x: 10, y: 28, width: 80, height: 60, fontSize: 24, color: '#ffffff', fontWeight: 'normal', zIndex: 1 },
+      { type: 'text', textType: 'title', textContent: 'Slide Title', x: 10, y: 10, width: 80, height: 12, fontSize: 48, color: '#ffffff', fontWeight: 'bold', zIndex: 1, readingOrder: 1 },
+      { type: 'text', textType: 'body', textContent: 'Your main content goes here. Edit this text to describe your point.', x: 10, y: 28, width: 80, height: 60, fontSize: 24, color: '#ffffff', fontWeight: 'normal', zIndex: 1, readingOrder: 2 },
     ],
   },
   {
     name: 'Bullet Points',
     icon: '📋',
     elements: [
-      { type: 'text', textType: 'title', textContent: 'Key Points', x: 10, y: 10, width: 80, height: 12, fontSize: 48, color: '#ffffff', fontWeight: 'bold', zIndex: 1 },
-      { type: 'text', textType: 'bullet', textContent: '• First point', x: 10, y: 28, width: 80, height: 8, fontSize: 28, color: '#ffffff', fontWeight: 'normal', zIndex: 1 },
-      { type: 'text', textType: 'bullet', textContent: '• Second point', x: 10, y: 38, width: 80, height: 8, fontSize: 28, color: '#ffffff', fontWeight: 'normal', zIndex: 1 },
-      { type: 'text', textType: 'bullet', textContent: '• Third point', x: 10, y: 48, width: 80, height: 8, fontSize: 28, color: '#ffffff', fontWeight: 'normal', zIndex: 1 },
+      { type: 'text', textType: 'title', textContent: 'Key Points', x: 10, y: 10, width: 80, height: 12, fontSize: 48, color: '#ffffff', fontWeight: 'bold', zIndex: 1, readingOrder: 1 },
+      { type: 'text', textType: 'bullet', textContent: '• First point', x: 10, y: 28, width: 80, height: 8, fontSize: 28, color: '#ffffff', fontWeight: 'normal', zIndex: 1, readingOrder: 2 },
+      { type: 'text', textType: 'bullet', textContent: '• Second point', x: 10, y: 38, width: 80, height: 8, fontSize: 28, color: '#ffffff', fontWeight: 'normal', zIndex: 1, readingOrder: 3 },
+      { type: 'text', textType: 'bullet', textContent: '• Third point', x: 10, y: 48, width: 80, height: 8, fontSize: 28, color: '#ffffff', fontWeight: 'normal', zIndex: 1, readingOrder: 4 },
     ],
   },
   {
     name: 'Two Column',
     icon: '📊',
     elements: [
-      { type: 'text', textType: 'title', textContent: 'Comparison', x: 10, y: 10, width: 80, height: 12, fontSize: 48, color: '#ffffff', fontWeight: 'bold', zIndex: 1 },
-      { type: 'text', textType: 'body', textContent: 'Left column content', x: 10, y: 28, width: 35, height: 60, fontSize: 20, color: '#ffffff', fontWeight: 'normal', zIndex: 1 },
-      { type: 'text', textType: 'body', textContent: 'Right column content', x: 55, y: 28, width: 35, height: 60, fontSize: 20, color: '#ffffff', fontWeight: 'normal', zIndex: 1 },
+      { type: 'text', textType: 'title', textContent: 'Comparison', x: 10, y: 10, width: 80, height: 12, fontSize: 48, color: '#ffffff', fontWeight: 'bold', zIndex: 1, readingOrder: 1 },
+      { type: 'text', textType: 'body', textContent: 'Left column content', x: 10, y: 28, width: 35, height: 60, fontSize: 20, color: '#ffffff', fontWeight: 'normal', zIndex: 1, readingOrder: 2 },
+      { type: 'text', textType: 'body', textContent: 'Right column content', x: 55, y: 28, width: 35, height: 60, fontSize: 20, color: '#ffffff', fontWeight: 'normal', zIndex: 1, readingOrder: 3 },
     ],
   },
   {
@@ -139,6 +134,17 @@ const formatDuration = (duration?: number | string): string => {
   return isNaN(num) ? 'No audio' : `${num.toFixed(1)}s`;
 };
 
+// Clean text for natural TTS
+const cleanTextForTTS = (text: string): string => {
+  return text
+    .replace(/\n+/g, '. ')              // Newlines → periods
+    .replace(/\s+/g, ' ')               // Multiple spaces → single
+    .replace(/([.!?])\s*([.!?])/g, '$1 ') // Remove duplicate punctuation
+    .replace(/\s+([.!?,;:])/g, '$1')   // Remove space before punctuation
+    .replace(/\.\s*\./g, '.')          // Remove double periods
+    .trim();
+};
+
 const EditorPage = () => {
   const { projectId } = useParams();
   const navigate = useNavigate();
@@ -159,8 +165,11 @@ const EditorPage = () => {
   const [bgImageUrl, setBgImageUrl] = useState('');
   const [elements, setElements] = useState<SlideElement[]>([]);
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  
+  // Smooth drag state
+  const [draggingElement, setDraggingElement] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const dragPositionRef = useRef({ x: 0, y: 0 });
   
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -180,11 +189,16 @@ const EditorPage = () => {
       const slide = slides[currentSlide];
       setBgValue(slide.background_gradient);
       setBgImageUrl(slide.background_image_url || '');
-      setElements(slide.elements || []);
+      
+      // Ensure all elements have readingOrder
+      const elementsWithOrder = (slide.elements || []).map((el, idx) => ({
+        ...el,
+        readingOrder: el.readingOrder ?? idx + 1,
+      }));
+      setElements(elementsWithOrder);
       setSelectedElement(null);
       setIsPlaying(false);
       
-      // Clear any ongoing animations
       animationIntervalsRef.current.forEach(interval => clearInterval(interval));
       animationIntervalsRef.current.clear();
       
@@ -302,9 +316,10 @@ const EditorPage = () => {
         {
           background_type: 'gradient',
           background_value: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-          elements: template.elements.map((el: any) => ({
+          elements: template.elements.map((el: any, idx: number) => ({
             ...el,
             id: `elem-${Date.now()}-${Math.random()}`,
+            readingOrder: idx + 1,
             animation: { type: 'fade-in', startMs: 0, durationMs: 500 },
           })),
         },
@@ -347,14 +362,21 @@ const EditorPage = () => {
   const generateAudio = async () => {
     if (!slides[currentSlide]) return;
     
-    // Collect all text from elements
-    const textElements = elements.filter(el => el.type === 'text' && el.textContent);
+    // Sort elements by reading order and collect text
+    const textElements = elements
+      .filter(el => el.type === 'text' && el.textContent)
+      .sort((a, b) => a.readingOrder - b.readingOrder);
+    
     if (textElements.length === 0) {
       alert('Add text elements before generating audio');
       return;
     }
     
-    const textToSpeak = textElements.map(el => el.textContent).join('. ');
+    // Join text with proper spacing and clean for TTS
+    const rawText = textElements.map(el => el.textContent).join('. ');
+    const textToSpeak = cleanTextForTTS(rawText);
+    
+    console.log('🎤 TTS Input (ordered):', textToSpeak);
     
     setGenerating(true);
     try {
@@ -391,7 +413,10 @@ const EditorPage = () => {
       ? parseFloat(currentSlideData.audio_duration) 
       : currentSlideData.audio_duration || 5;
     
-    elements.forEach((element) => {
+    // Sort by reading order for animations
+    const sortedElements = [...elements].sort((a, b) => a.readingOrder - b.readingOrder);
+    
+    sortedElements.forEach((element) => {
       if (element.type !== 'text' || !element.animation) return;
       
       const animType = element.animation.type;
@@ -453,6 +478,8 @@ const EditorPage = () => {
                            textType === 'caption' ? 'Caption text' :
                            'Your text here';
     
+    const maxOrder = Math.max(0, ...elements.map(el => el.readingOrder || 0));
+    
     const newElement: SlideElement = {
       id: `elem-${Date.now()}`,
       type: 'text',
@@ -462,6 +489,7 @@ const EditorPage = () => {
       width: preset.width,
       height: preset.height,
       zIndex: 1,
+      readingOrder: maxOrder + 1,
       textContent: placeholderText,
       fontSize: preset.fontSize,
       color: preset.color,
@@ -484,6 +512,7 @@ const EditorPage = () => {
         const reader = new FileReader();
         reader.onload = (event) => {
           const imageUrl = event.target?.result as string;
+          const maxOrder = Math.max(0, ...elements.map(el => el.readingOrder || 0));
           const newElement: SlideElement = {
             id: `elem-${Date.now()}`,
             type: 'image',
@@ -492,6 +521,7 @@ const EditorPage = () => {
             width: 30,
             height: 30,
             zIndex: 1,
+            readingOrder: maxOrder + 1,
             imageUrl,
             animation: { type: 'fade-in', startMs: 0, durationMs: 500 },
           };
@@ -530,40 +560,95 @@ const EditorPage = () => {
     setSelectedElement(null);
   };
 
+  const moveElementOrder = (elementId: string, direction: 'up' | 'down') => {
+    const element = elements.find(el => el.id === elementId);
+    if (!element) return;
+    
+    const sortedElements = [...elements].sort((a, b) => a.readingOrder - b.readingOrder);
+    const currentIndex = sortedElements.findIndex(el => el.id === elementId);
+    
+    if (direction === 'up' && currentIndex > 0) {
+      const temp = sortedElements[currentIndex - 1].readingOrder;
+      sortedElements[currentIndex - 1].readingOrder = element.readingOrder;
+      element.readingOrder = temp;
+    } else if (direction === 'down' && currentIndex < sortedElements.length - 1) {
+      const temp = sortedElements[currentIndex + 1].readingOrder;
+      sortedElements[currentIndex + 1].readingOrder = element.readingOrder;
+      element.readingOrder = temp;
+    }
+    
+    setElements([...sortedElements]);
+  };
+
   const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
       setSelectedElement(null);
     }
   };
 
-  const handleElementDragStart = (elementId: string, e: React.MouseEvent) => {
+  // OPTIMIZED DRAG: Use transform instead of position updates
+  const handleElementMouseDown = (elementId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setSelectedElement(elementId);
-    setIsDragging(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
-  };
-
-  const handleElementDrag = (e: React.MouseEvent) => {
-    if (!isDragging || !selectedElement || !canvasRef.current) return;
+    e.preventDefault();
     
-    const element = elements.find(el => el.id === selectedElement);
-    if (!element) return;
+    const element = elements.find(el => el.id === elementId);
+    if (!element || !canvasRef.current) return;
+    
+    setSelectedElement(elementId);
+    setDraggingElement(elementId);
     
     const canvasRect = canvasRef.current.getBoundingClientRect();
-    const deltaX = ((e.clientX - dragStart.x) / canvasRect.width) * 100;
-    const deltaY = ((e.clientY - dragStart.y) / canvasRect.height) * 100;
+    const elementRect = e.currentTarget.getBoundingClientRect();
     
-    updateElement(selectedElement, {
-      x: Math.max(0, Math.min(100 - element.width, element.x + deltaX)),
-      y: Math.max(0, Math.min(100 - element.height, element.y + deltaY)),
+    setDragOffset({
+      x: e.clientX - elementRect.left,
+      y: e.clientY - elementRect.top,
     });
     
-    setDragStart({ x: e.clientX, y: e.clientY });
+    dragPositionRef.current = { x: element.x, y: element.y };
   };
 
-  const handleElementDragEnd = () => {
-    setIsDragging(false);
-  };
+  const handleCanvasMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!draggingElement || !canvasRef.current) return;
+    
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+    const newX = ((e.clientX - canvasRect.left - dragOffset.x) / canvasRect.width) * 100;
+    const newY = ((e.clientY - canvasRect.top - dragOffset.y) / canvasRect.height) * 100;
+    
+    dragPositionRef.current = {
+      x: Math.max(0, Math.min(100, newX)),
+      y: Math.max(0, Math.min(100, newY)),
+    };
+    
+    // Visual update only (no state change for performance)
+    const draggedEl = document.getElementById(`element-${draggingElement}`);
+    if (draggedEl) {
+      draggedEl.style.left = `${dragPositionRef.current.x}%`;
+      draggedEl.style.top = `${dragPositionRef.current.y}%`;
+    }
+  }, [draggingElement, dragOffset]);
+
+  const handleCanvasMouseUp = useCallback(() => {
+    if (draggingElement) {
+      // Save final position to state
+      updateElement(draggingElement, {
+        x: dragPositionRef.current.x,
+        y: dragPositionRef.current.y,
+      });
+      setDraggingElement(null);
+    }
+  }, [draggingElement]);
+
+  useEffect(() => {
+    if (draggingElement) {
+      document.body.style.cursor = 'grabbing';
+    } else {
+      document.body.style.cursor = 'default';
+    }
+    return () => {
+      document.body.style.cursor = 'default';
+    };
+  }, [draggingElement]);
 
   if (loading) {
     return (
@@ -577,6 +662,7 @@ const EditorPage = () => {
   }
 
   const currentSlideData = slides[currentSlide];
+  const sortedElements = [...elements].sort((a, b) => a.readingOrder - b.readingOrder);
 
   return (
     <div className="h-screen bg-gray-900 flex flex-col">
@@ -587,22 +673,13 @@ const EditorPage = () => {
             <h2 className="text-2xl font-bold text-white mb-6">Choose Slide Template</h2>
             <div className="grid grid-cols-3 gap-4">
               {slideTemplates.map((template) => (
-                <button
-                  key={template.name}
-                  onClick={() => addSlideFromTemplate(template)}
-                  className="p-6 bg-gray-700 hover:bg-purple-600 rounded-xl transition-all text-center group"
-                >
+                <button key={template.name} onClick={() => addSlideFromTemplate(template)} className="p-6 bg-gray-700 hover:bg-purple-600 rounded-xl transition-all text-center group">
                   <div className="text-4xl mb-3">{template.icon}</div>
                   <div className="text-white font-semibold">{template.name}</div>
                 </button>
               ))}
             </div>
-            <button
-              onClick={() => setShowTemplateModal(false)}
-              className="mt-6 w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
-            >
-              Cancel
-            </button>
+            <button onClick={() => setShowTemplateModal(false)} className="mt-6 w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors">Cancel</button>
           </div>
         </div>
       )}
@@ -613,48 +690,13 @@ const EditorPage = () => {
           <div className="bg-gray-800 rounded-2xl p-8 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-2xl font-bold text-white mb-6">Choose Text Type</h2>
             <div className="space-y-3">
-              <button
-                onClick={() => addTextElementWithType('title')}
-                className="w-full p-4 bg-gray-700 hover:bg-purple-600 rounded-lg text-left transition-all group"
-              >
-                <div className="text-white font-bold text-lg">Title</div>
-                <div className="text-gray-400 text-sm">Large, bold text for headings</div>
-              </button>
-              <button
-                onClick={() => addTextElementWithType('body')}
-                className="w-full p-4 bg-gray-700 hover:bg-purple-600 rounded-lg text-left transition-all group"
-              >
-                <div className="text-white font-bold text-lg">Body Text</div>
-                <div className="text-gray-400 text-sm">Normal paragraph text</div>
-              </button>
-              <button
-                onClick={() => addTextElementWithType('bullet')}
-                className="w-full p-4 bg-gray-700 hover:bg-purple-600 rounded-lg text-left transition-all group"
-              >
-                <div className="text-white font-bold text-lg">Bullet Point</div>
-                <div className="text-gray-400 text-sm">List item with bullet</div>
-              </button>
-              <button
-                onClick={() => addTextElementWithType('caption')}
-                className="w-full p-4 bg-gray-700 hover:bg-purple-600 rounded-lg text-left transition-all group"
-              >
-                <div className="text-white font-bold text-lg">Caption</div>
-                <div className="text-gray-400 text-sm">Small descriptive text</div>
-              </button>
-              <button
-                onClick={() => addTextElementWithType('custom')}
-                className="w-full p-4 bg-gray-700 hover:bg-purple-600 rounded-lg text-left transition-all group"
-              >
-                <div className="text-white font-bold text-lg">Custom</div>
-                <div className="text-gray-400 text-sm">Full manual control</div>
-              </button>
+              {Object.keys(textTypePresets).map(type => (
+                <button key={type} onClick={() => addTextElementWithType(type as any)} className="w-full p-4 bg-gray-700 hover:bg-purple-600 rounded-lg text-left transition-all group">
+                  <div className="text-white font-bold text-lg capitalize">{type}</div>
+                </button>
+              ))}
             </div>
-            <button
-              onClick={() => setShowTextTypeModal(false)}
-              className="mt-6 w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
-            >
-              Cancel
-            </button>
+            <button onClick={() => setShowTextTypeModal(false)} className="mt-6 w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors">Cancel</button>
           </div>
         </div>
       )}
@@ -691,9 +733,7 @@ const EditorPage = () => {
         {/* Slide List */}
         <div className="w-64 bg-gray-800 border-r border-gray-700 overflow-y-auto">
           <div className="p-4">
-            <button onClick={() => setShowTemplateModal(true)} className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors mb-4">
-              ➕ New Slide
-            </button>
+            <button onClick={() => setShowTemplateModal(true)} className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors mb-4">➕ New Slide</button>
             
             <div className="space-y-2">
               {slides.map((slide, index) => (
@@ -704,13 +744,9 @@ const EditorPage = () => {
                     <span className="text-sm font-bold text-white">#{index + 1}</span>
                     <div className="flex items-center gap-2">
                       {slide.audio_url && (
-                        <button onClick={(e) => playSlideAudio(slide.audio_url!, e)} className="bg-green-500 hover:bg-green-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px]">
-                          ▶
-                        </button>
+                        <button onClick={(e) => playSlideAudio(slide.audio_url!, e)} className="bg-green-500 hover:bg-green-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px]">▶</button>
                       )}
-                      <button onClick={(e) => deleteSlide(slide.id, e)} className="opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">
-                        ×
-                      </button>
+                      <button onClick={(e) => deleteSlide(slide.id, e)} className="opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">×</button>
                     </div>
                   </div>
                   
@@ -731,11 +767,11 @@ const EditorPage = () => {
             <div
               ref={canvasRef}
               onClick={handleCanvasClick}
-              onMouseMove={handleElementDrag}
-              onMouseUp={handleElementDragEnd}
-              onMouseLeave={handleElementDragEnd}
-              className="w-full aspect-video rounded-2xl shadow-2xl relative overflow-hidden cursor-default"
-              style={{ background: bgImageUrl ? `url(${bgImageUrl}) center/cover` : bgValue }}
+              onMouseMove={handleCanvasMouseMove}
+              onMouseUp={handleCanvasMouseUp}
+              onMouseLeave={handleCanvasMouseUp}
+              className="w-full aspect-video rounded-2xl shadow-2xl relative overflow-hidden"
+              style={{ background: bgImageUrl ? `url(${bgImageUrl}) center/cover` : bgValue, cursor: draggingElement ? 'grabbing' : 'default' }}
             >
               {bgImageUrl && <div className="absolute inset-0 bg-black/30" />}
               
@@ -744,8 +780,9 @@ const EditorPage = () => {
                   return (
                     <div
                       key={element.id}
-                      onMouseDown={(e) => handleElementDragStart(element.id, e)}
-                      className={`absolute cursor-move transition-all ${
+                      id={`element-${element.id}`}
+                      onMouseDown={(e) => handleElementMouseDown(element.id, e)}
+                      className={`absolute transition-all ${
                         selectedElement === element.id ? 'ring-2 ring-blue-400 bg-blue-500/10' : 'hover:ring-2 hover:ring-blue-300/50'
                       }`}
                       style={{
@@ -754,15 +791,20 @@ const EditorPage = () => {
                         width: `${element.width}%`,
                         height: `${element.height}%`,
                         zIndex: element.zIndex || 1,
+                        cursor: draggingElement === element.id ? 'grabbing' : 'grab',
                       }}
                     >
-                      <p className="drop-shadow-lg" style={{
+                      <div className="absolute top-0 left-0 -mt-6 bg-blue-500 text-white text-xs px-2 py-0.5 rounded font-bold">
+                        {element.readingOrder}
+                      </div>
+                      <p className="drop-shadow-lg select-none" style={{
                           fontSize: `${element.fontSize}px`,
                           color: element.color,
                           fontWeight: element.fontWeight as any,
                           fontFamily: element.fontFamily,
                           whiteSpace: 'pre-wrap',
                           wordBreak: 'break-word',
+                          pointerEvents: 'none',
                         }}>
                         {element.textContent}
                       </p>
@@ -770,11 +812,11 @@ const EditorPage = () => {
                   );
                 } else if (element.type === 'image' && element.imageUrl) {
                   return (
-                    <img
+                    <div
                       key={element.id}
-                      src={element.imageUrl}
-                      onMouseDown={(e) => handleElementDragStart(element.id, e)}
-                      className={`absolute cursor-move object-cover rounded-lg transition-all ${
+                      id={`element-${element.id}`}
+                      onMouseDown={(e) => handleElementMouseDown(element.id, e)}
+                      className={`absolute transition-all ${
                         selectedElement === element.id ? 'ring-4 ring-blue-400' : 'hover:ring-2 hover:ring-blue-300/50'
                       }`}
                       style={{
@@ -783,8 +825,11 @@ const EditorPage = () => {
                         width: `${element.width}%`,
                         height: `${element.height}%`,
                         zIndex: element.zIndex || 1,
+                        cursor: draggingElement === element.id ? 'grabbing' : 'grab',
                       }}
-                    />
+                    >
+                      <img src={element.imageUrl} className="w-full h-full object-cover rounded-lg pointer-events-none" draggable="false" />
+                    </div>
                   );
                 }
                 return null;
@@ -802,16 +847,32 @@ const EditorPage = () => {
             <div className="bg-gray-700 rounded-lg p-4">
               <h4 className="text-sm font-semibold text-gray-300 mb-3">Add Elements</h4>
               <div className="space-y-2">
-                <button onClick={() => setShowTextTypeModal(true)} className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded transition-colors">
-                  📝 Add Text
-                </button>
-                <button onClick={addImageElement} className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded transition-colors">
-                  🖼️ Add Image
-                </button>
-                <button onClick={addBackgroundImage} className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded transition-colors">
-                  🎨 Background Image
-                </button>
+                <button onClick={() => setShowTextTypeModal(true)} className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded transition-colors">📝 Add Text</button>
+                <button onClick={addImageElement} className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded transition-colors">🖼️ Add Image</button>
+                <button onClick={addBackgroundImage} className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded transition-colors">🎨 Background Image</button>
               </div>
+            </div>
+            
+            {/* Reading Order */}
+            <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-4">
+              <h4 className="text-sm font-semibold text-orange-300 mb-3">📖 Reading Order (for TTS)</h4>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {sortedElements.filter(el => el.type === 'text').map((element, idx) => (
+                  <div key={element.id} className={`p-2 bg-gray-700/50 rounded flex items-center justify-between ${
+                    selectedElement === element.id ? 'ring-2 ring-orange-400' : ''
+                  }`}>
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="bg-orange-500 text-white text-xs px-2 py-1 rounded font-bold flex-shrink-0">{element.readingOrder}</span>
+                      <span className="text-white text-xs truncate">{element.textContent?.substring(0, 20)}...</span>
+                    </div>
+                    <div className="flex gap-1 flex-shrink-0">
+                      <button onClick={() => moveElementOrder(element.id, 'up')} disabled={idx === 0} className="p-1 bg-gray-600 hover:bg-gray-500 text-white rounded disabled:opacity-30 disabled:cursor-not-allowed">↑</button>
+                      <button onClick={() => moveElementOrder(element.id, 'down')} disabled={idx === sortedElements.filter(el => el.type === 'text').length - 1} className="p-1 bg-gray-600 hover:bg-gray-500 text-white rounded disabled:opacity-30 disabled:cursor-not-allowed">↓</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-orange-300 mt-2">💡 Reorder before generating audio</p>
             </div>
             
             {/* Selected Element */}
@@ -861,9 +922,7 @@ const EditorPage = () => {
                         <input type="number" value={Math.round(element.height)} onChange={(e) => updateElement(element.id, { height: parseFloat(e.target.value) })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" min="1" max="100" />
                       </div>
                     </div>
-                    <button onClick={() => deleteElement(element.id)} className="w-full py-2 bg-red-600/30 hover:bg-red-600/50 text-red-300 text-sm font-medium rounded transition-colors">
-                      🗑️ Delete Element
-                    </button>
+                    <button onClick={() => deleteElement(element.id)} className="w-full py-2 bg-red-600/30 hover:bg-red-600/50 text-red-300 text-sm font-medium rounded transition-colors">🗑️ Delete</button>
                   </div>
                 </div>
               );
@@ -907,9 +966,7 @@ const EditorPage = () => {
               <button onClick={generateAudio} disabled={generating || !slides[currentSlide]} className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 mb-3">
                 {generating ? '⏳ Generating...' : '🎤 Generate Audio'}
               </button>
-              <button onClick={() => slides[currentSlide] && deleteSlide(slides[currentSlide].id)} disabled={!slides[currentSlide] || slides.length === 1} className="w-full py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 font-medium rounded-lg transition-colors disabled:opacity-50">
-                🗑️ Delete Slide
-              </button>
+              <button onClick={() => slides[currentSlide] && deleteSlide(slides[currentSlide].id)} disabled={!slides[currentSlide] || slides.length === 1} className="w-full py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 font-medium rounded-lg transition-colors disabled:opacity-50">🗑️ Delete Slide</button>
             </div>
           </div>
         </div>
