@@ -5,6 +5,7 @@
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { homedir } from 'os';
 import path from 'path';
 import type { TTSRequest, TTSResponse, TTSVoice } from '../../types';
 
@@ -54,39 +55,49 @@ export const generateAudio = async (request: TTSRequest): Promise<TTSResponse> =
     // Escape text for shell
     const escapedText = text.replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/`/g, '\\`');
     
-    // Try multiple methods to run edge-tts
-    // Method 1: Direct command (if in PATH)
-    // Method 2: Python module with user site-packages
-    // Method 3: Direct path to user's local bin
-    const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-    const commands = [
-      `edge-tts --voice "${selectedVoice}" ${rateParam} ${pitchParam} --text "${escapedText}" --write-media "${filepath}"`,
-      `python3 -m edge_tts --voice "${selectedVoice}" ${rateParam} ${pitchParam} --text "${escapedText}" --write-media "${filepath}"`,
-      `${homeDir}/.local/bin/edge-tts --voice "${selectedVoice}" ${rateParam} ${pitchParam} --text "${escapedText}" --write-media "${filepath}"`,
-    ];
+    // Get real user home directory (not snap/flatpak home)
+    const realHome = homedir();
     
     console.log('Generating TTS audio:', { 
       voice: selectedVoice, 
       rate: rateNum, 
       pitch: pitchNum,
-      textLength: text.length 
+      textLength: text.length,
+      homeDir: realHome
     });
     
+    // Try multiple methods to run edge-tts
+    const commands = [
+      // Method 1: Use PYTHONPATH with python3 -m
+      `PYTHONPATH=${realHome}/.local/lib/python3.8/site-packages python3 -m edge_tts --voice "${selectedVoice}" ${rateParam} ${pitchParam} --text "${escapedText}" --write-media "${filepath}"`,
+      // Method 2: Direct path to edge-tts in user bin
+      `${realHome}/.local/bin/edge-tts --voice "${selectedVoice}" ${rateParam} ${pitchParam} --text "${escapedText}" --write-media "${filepath}"`,
+      // Method 3: Direct edge-tts command (if in PATH)
+      `edge-tts --voice "${selectedVoice}" ${rateParam} ${pitchParam} --text "${escapedText}" --write-media "${filepath}"`,
+      // Method 4: Python3 -m with PATH updated
+      `PATH=${realHome}/.local/bin:$PATH python3 -m edge_tts --voice "${selectedVoice}" ${rateParam} ${pitchParam} --text "${escapedText}" --write-media "${filepath}"`,
+    ];
+    
     let lastError: any;
-    for (const command of commands) {
+    let succeeded = false;
+    
+    for (let i = 0; i < commands.length; i++) {
       try {
-        await execAsync(command);
-        console.log('✅ TTS generation succeeded with command');
-        break; // Success!
+        console.log(`Trying method ${i + 1}...`);
+        await execAsync(commands[i]);
+        console.log(`✅ TTS generation succeeded with method ${i + 1}`);
+        succeeded = true;
+        break;
       } catch (err: any) {
+        console.log(`Method ${i + 1} failed:`, err.message);
         lastError = err;
-        continue; // Try next method
+        continue;
       }
     }
     
     // If all methods failed, throw the last error
-    if (lastError && !require('fs').existsSync(filepath)) {
-      throw lastError;
+    if (!succeeded) {
+      throw new Error(`All TTS methods failed. Last error: ${lastError?.message || 'Unknown error'}`);
     }
     
     // Get audio duration (using ffprobe if available)
@@ -100,6 +111,7 @@ export const generateAudio = async (request: TTSRequest): Promise<TTSResponse> =
       // Estimate duration if ffprobe not available: ~150 words per minute
       const wordCount = text.split(/\s+/).length;
       duration = (wordCount / 150) * 60;
+      console.log('Estimated duration:', duration);
     }
     
     const audioUrl = `/storage/audio/${filename}`;
