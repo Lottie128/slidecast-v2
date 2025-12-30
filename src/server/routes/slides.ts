@@ -28,16 +28,40 @@ router.post('/', async (req: AuthRequest, res) => {
     const userId = req.userId!;
     const slideData = req.body;
     
-    // Verify project ownership
-    const project = await getProjectById(slideData.projectId);
-    if (!project || (project as any).user_id !== userId) {
+    console.log('Creating slide with data:', slideData);
+    
+    // Verify project exists and user owns it
+    const project: any = await getProjectById(slideData.projectId);
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        error: 'Project not found',
+      } as ApiResponse);
+    }
+    
+    if (project.user_id !== userId) {
+      console.log('Access denied - user_id mismatch:', { projectUserId: project.user_id, requestUserId: userId });
       return res.status(403).json({
         success: false,
         error: 'Access denied',
       } as ApiResponse);
     }
     
-    const slide = await createSlide(slideData);
+    // Transform frontend data to match database schema
+    const dbSlideData = {
+      projectId: slideData.projectId,
+      order: slideData.slide_number || 0,
+      title: slideData.title || 'Untitled Slide',
+      content: slideData.content || '',
+      backgroundGradient: slideData.background_value || 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      elements: [],
+      audioUrl: null,
+      audioDuration: null,
+      duration: 5.0,
+      transition: null,
+    };
+    
+    const slide = await createSlide(dbSlideData);
     
     res.status(201).json({
       success: true,
@@ -61,9 +85,16 @@ router.get('/project/:projectId', async (req: AuthRequest, res) => {
     const userId = req.userId!;
     const projectId = req.params.projectId;
     
-    // Verify project ownership
-    const project = await getProjectById(projectId);
-    if (!project || (project as any).user_id !== userId) {
+    // Verify project exists and user owns it
+    const project: any = await getProjectById(projectId);
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        error: 'Project not found',
+      } as ApiResponse);
+    }
+    
+    if (project.user_id !== userId) {
       return res.status(403).json({
         success: false,
         error: 'Access denied',
@@ -94,7 +125,17 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     const slideId = req.params.id;
     const updates = req.body;
     
-    const updated = await updateSlide(slideId, updates);
+    // Transform frontend field names to database field names
+    const dbUpdates: any = {};
+    
+    if (updates.title !== undefined) dbUpdates.title = updates.title;
+    if (updates.content !== undefined) dbUpdates.content = updates.content;
+    if (updates.speaker_notes !== undefined) dbUpdates.content = updates.speaker_notes;
+    if (updates.background_value !== undefined) dbUpdates.backgroundGradient = updates.background_value;
+    if (updates.audio_url !== undefined) dbUpdates.audioUrl = updates.audio_url;
+    if (updates.audio_duration !== undefined) dbUpdates.audioDuration = updates.audio_duration;
+    
+    const updated = await updateSlide(slideId, dbUpdates);
     
     if (!updated) {
       return res.status(404).json({
@@ -156,8 +197,15 @@ router.post('/reorder', async (req: AuthRequest, res) => {
     const { projectId, slideIds } = req.body;
     
     // Verify project ownership
-    const project = await getProjectById(projectId);
-    if (!project || (project as any).user_id !== userId) {
+    const project: any = await getProjectById(projectId);
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        error: 'Project not found',
+      } as ApiResponse);
+    }
+    
+    if (project.user_id !== userId) {
       return res.status(403).json({
         success: false,
         error: 'Access denied',
