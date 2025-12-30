@@ -1,13 +1,28 @@
+// ============================================
+// SlideCast V2 - Video Generation Routes
+// ============================================
+
+import { Router } from 'express';
+import { authenticateToken, type AuthRequest } from '../middleware/auth';
 import { updateProject, createVideoJob, getVideoJobByProjectId, updateVideoJob } from '../db/queries';
 import type { VideoGenerationRequest, VideoGenerationProgress, ApiResponse } from '../../types';
+
+const router = Router();
+
+// All routes require authentication
+router.use(authenticateToken);
 
 // In-memory store for active video jobs (in production, use Redis)
 const videoJobs = new Map<string, VideoGenerationProgress>();
 
-export const initiateVideoGeneration = async (
-  request: VideoGenerationRequest
-): Promise<ApiResponse<VideoGenerationProgress>> => {
+/**
+ * POST /api/video/generate
+ * Initiate video generation for a project
+ */
+router.post('/generate', async (req: AuthRequest, res) => {
   try {
+    const request: VideoGenerationRequest = req.body;
+    
     const progress: VideoGenerationProgress = {
       projectId: request.projectId,
       status: 'queued',
@@ -23,8 +38,7 @@ export const initiateVideoGeneration = async (
 
     // Update project status
     await updateProject(request.projectId, { 
-      status: 'generating',
-      video_progress: 0 
+      status: 'generating' as any,
     });
 
     // Start async video generation
@@ -32,23 +46,27 @@ export const initiateVideoGeneration = async (
       console.error('Video generation failed:', error);
     });
 
-    return { 
+    res.json({ 
       success: true, 
       data: progress 
-    };
+    } as ApiResponse<VideoGenerationProgress>);
   } catch (error: any) {
     console.error('Initiate video generation error:', error);
-    return { 
+    res.status(500).json({ 
       success: false, 
       error: 'Failed to initiate video generation' 
-    };
+    } as ApiResponse);
   }
-};
+});
 
-export const getVideoProgress = async (
-  projectId: string
-): Promise<ApiResponse<VideoGenerationProgress>> => {
+/**
+ * GET /api/video/progress/:projectId
+ * Get video generation progress
+ */
+router.get('/progress/:projectId', async (req: AuthRequest, res) => {
   try {
+    const { projectId } = req.params;
+    
     // Check in-memory first
     let progress = videoJobs.get(projectId);
 
@@ -68,24 +86,24 @@ export const getVideoProgress = async (
     }
 
     if (!progress) {
-      return { 
+      return res.status(404).json({ 
         success: false, 
         error: 'No video generation job found' 
-      };
+      } as ApiResponse);
     }
 
-    return { 
+    res.json({ 
       success: true, 
       data: progress 
-    };
+    } as ApiResponse<VideoGenerationProgress>);
   } catch (error: any) {
     console.error('Get video progress error:', error);
-    return { 
+    res.status(500).json({ 
       success: false, 
       error: 'Failed to get video progress' 
-    };
+    } as ApiResponse);
   }
-};
+});
 
 // Async video generation function
 const generateVideoAsync = async (request: VideoGenerationRequest) => {
@@ -129,9 +147,7 @@ const generateVideoAsync = async (request: VideoGenerationRequest) => {
     progress.progress = 100;
 
     await updateProject(request.projectId, {
-      status: 'completed',
-      video_progress: 100,
-      video_url: `/videos/${request.projectId}.mp4`, // Placeholder
+      status: 'completed' as any,
     });
 
     await updateVideoJob(request.projectId, { status: 'completed', progress: 100 });
@@ -147,10 +163,12 @@ const generateVideoAsync = async (request: VideoGenerationRequest) => {
     progress.status = 'failed';
     progress.error = error.message;
 
-    await updateProject(request.projectId, { status: 'failed' });
+    await updateProject(request.projectId, { status: 'failed' as any });
     await updateVideoJob(request.projectId, { 
       status: 'failed', 
       error: error.message 
     });
   }
 };
+
+export default router;
