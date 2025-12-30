@@ -1,61 +1,68 @@
 // ============================================
 // SlideCast V2 - Text-to-Speech Service
-// EdgeTTS Integration
+// Using edge-tts (free Microsoft TTS)
 // ============================================
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { promises as fs } from 'fs';
+import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
-import config from '../config';
+import { existsSync } from 'fs';
 import type { TTSRequest, TTSResponse, TTSVoice } from '../../types';
 
 const execAsync = promisify(exec);
 
-// Ensure storage directories exist
-const ensureDirectories = async () => {
-  const dirs = [
-    path.join(config.storage.basePath, 'audio'),
-    path.join(config.storage.basePath, 'temp'),
-  ];
-  
-  for (const dir of dirs) {
-    await fs.mkdir(dir, { recursive: true });
-  }
+const STORAGE_DIR = path.join(process.cwd(), 'storage', 'audio');
+
+// Ensure storage directory exists
+execAsync(`mkdir -p ${STORAGE_DIR}`).catch(() => {});
+
+// Popular Microsoft Edge TTS voices
+const AVAILABLE_VOICES: TTSVoice[] = [
+  { id: 'en-US-AriaNeural', name: 'Aria (Female, US)', language: 'en-US', gender: 'female' },
+  { id: 'en-US-GuyNeural', name: 'Guy (Male, US)', language: 'en-US', gender: 'male' },
+  { id: 'en-US-JennyNeural', name: 'Jenny (Female, US)', language: 'en-US', gender: 'female' },
+  { id: 'en-GB-SoniaNeural', name: 'Sonia (Female, UK)', language: 'en-GB', gender: 'female' },
+  { id: 'en-GB-RyanNeural', name: 'Ryan (Male, UK)', language: 'en-GB', gender: 'male' },
+  { id: 'en-AU-NatashaNeural', name: 'Natasha (Female, AU)', language: 'en-AU', gender: 'female' },
+];
+
+export const getAvailableVoices = async (): Promise<TTSVoice[]> => {
+  return AVAILABLE_VOICES;
 };
 
-// Initialize
-ensureDirectories().catch(console.error);
-
-/**
- * Generate audio using EdgeTTS
- * Requires: pip install edge-tts
- */
 export const generateAudio = async (request: TTSRequest): Promise<TTSResponse> => {
   try {
-    const { text, voice, rate = 1.0, pitch = 0 } = request;
+    const { text, voice, rate = '1.0', pitch = '0' } = request;
     
     // Generate unique filename
-    const filename = `audio_${Date.now()}_${Math.random().toString(36).substring(7)}.mp3`;
-    const outputPath = path.join(config.storage.basePath, 'audio', filename);
+    const timestamp = Date.now();
+    const filename = `tts_${timestamp}.mp3`;
+    const filepath = path.join(STORAGE_DIR, filename);
     
-    // EdgeTTS command
-    const rateParam = rate !== 1.0 ? `+${Math.round((rate - 1) * 100)}%` : '+0%';
-    const pitchParam = pitch !== 0 ? `+${pitch}Hz` : '+0Hz';
+    // Validate voice
+    const selectedVoice = voice || 'en-US-AriaNeural';
     
-    const command = `edge-tts --voice "${voice}" --rate="${rateParam}" --pitch="${pitchParam}" --text "${text.replace(/"/g, '\\"')}" --write-media "${outputPath}"`;
+    // Generate audio using edge-tts CLI
+    // Install with: pip install edge-tts
+    const rateParam = rate !== '1.0' ? `--rate=${rate}` : '';
+    const pitchParam = pitch !== '0' ? `--pitch=${pitch}` : '';
     
-    console.log('Generating TTS audio:', { voice, rate, pitch, textLength: text.length });
+    const command = `edge-tts --voice "${selectedVoice}" ${rateParam} ${pitchParam} --text "${text.replace(/"/g, '\\"')}" --write-media "${filepath}"`;
+    
+    console.log('Generating TTS audio:', { voice: selectedVoice, textLength: text.length });
     
     await execAsync(command);
     
-    // Get audio duration (using ffprobe if available)
-    let duration = 5.0; // default fallback
+    // Get audio duration (using ffprobe)
+    let duration = 5.0; // default
     try {
-      const { stdout } = await execAsync(`ffprobe -i "${outputPath}" -show_entries format=duration -v quiet -of csv="p=0"`);
+      const { stdout } = await execAsync(
+        `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${filepath}"`
+      );
       duration = parseFloat(stdout.trim());
     } catch (err) {
-      console.warn('Could not get audio duration, using default');
+      console.warn('Could not get audio duration:', err);
     }
     
     const audioUrl = `/storage/audio/${filename}`;
@@ -63,6 +70,7 @@ export const generateAudio = async (request: TTSRequest): Promise<TTSResponse> =
     return {
       audioUrl,
       duration,
+      voice: selectedVoice,
     };
   } catch (error: any) {
     console.error('TTS generation error:', error);
@@ -70,56 +78,14 @@ export const generateAudio = async (request: TTSRequest): Promise<TTSResponse> =
   }
 };
 
-/**
- * Get available EdgeTTS voices
- */
-export const getAvailableVoices = async (): Promise<TTSVoice[]> => {
-  try {
-    const { stdout } = await execAsync('edge-tts --list-voices');
-    const lines = stdout.split('\n').filter(line => line.includes('Name:'));
-    
-    const voices: TTSVoice[] = lines.map(line => {
-      const nameMatch = line.match(/Name:\s*([^\s]+)/);
-      const genderMatch = line.match(/Gender:\s*(\w+)/);
-      const localeMatch = line.match(/Locale:\s*([^\s]+)/);
-      
-      return {
-        id: nameMatch?.[1] || '',
-        name: nameMatch?.[1] || '',
-        gender: (genderMatch?.[1] as any) || 'Neutral',
-        locale: localeMatch?.[1] || 'en-US',
-      };
-    }).filter(v => v.id);
-    
-    return voices;
-  } catch (error) {
-    console.error('Failed to fetch voices:', error);
-    // Return default voices as fallback
-    return getDefaultVoices();
-  }
-};
-
-/**
- * Default voice list (fallback)
- */
-const getDefaultVoices = (): TTSVoice[] => [
-  { id: 'en-US-AriaNeural', name: 'Aria (US Female)', gender: 'Female', locale: 'en-US' },
-  { id: 'en-US-GuyNeural', name: 'Guy (US Male)', gender: 'Male', locale: 'en-US' },
-  { id: 'en-GB-SoniaNeural', name: 'Sonia (UK Female)', gender: 'Female', locale: 'en-GB' },
-  { id: 'en-GB-RyanNeural', name: 'Ryan (UK Male)', gender: 'Male', locale: 'en-GB' },
-  { id: 'en-AU-NatashaNeural', name: 'Natasha (AU Female)', gender: 'Female', locale: 'en-AU' },
-  { id: 'en-IN-NeerjaNeural', name: 'Neerja (IN Female)', gender: 'Female', locale: 'en-IN' },
-];
-
-/**
- * Delete audio file
- */
-export const deleteAudio = async (audioUrl: string): Promise<void> => {
-  try {
-    const filename = path.basename(audioUrl);
-    const filePath = path.join(config.storage.basePath, 'audio', filename);
-    await fs.unlink(filePath);
-  } catch (error) {
-    console.error('Failed to delete audio file:', error);
-  }
+export const generateSlideAudio = async (slideContent: string, voice?: string): Promise<TTSResponse> => {
+  // Use slide content or title + content as speech text
+  const text = slideContent || 'Welcome to this slide';
+  
+  return generateAudio({
+    text,
+    voice: voice || 'en-US-AriaNeural',
+    rate: '1.0',
+    pitch: '0',
+  });
 };

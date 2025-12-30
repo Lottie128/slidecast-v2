@@ -15,7 +15,8 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts,.tsx",
     "test": "bun test",
-    "db:migrate": "bun scripts/migrate.ts"
+    "db:migrate": "bun scripts/migrate.ts",
+    "setup:tts": "pip install edge-tts"
   },
   "dependencies": {
     "react": "^18.3.1",
