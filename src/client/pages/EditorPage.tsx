@@ -72,7 +72,7 @@ const EditorPage = () => {
   const fetchSlides = async () => {
     try {
       const token = localStorage.getItem('accessToken');
-      const response = await axios.get(`/api/projects/${projectId}/slides`, {
+      const response = await axios.get(`/api/slides/project/${projectId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const slideData = response.data.data || [];
@@ -97,7 +97,7 @@ const EditorPage = () => {
       };
 
       if (slides[currentSlide]) {
-        await axios.put(
+        await axios.patch(
           `/api/slides/${slides[currentSlide].id}`,
           slideData,
           { headers: { Authorization: `Bearer ${token}` } }
@@ -116,8 +116,9 @@ const EditorPage = () => {
     try {
       const token = localStorage.getItem('accessToken');
       await axios.post(
-        `/api/projects/${projectId}/slides`,
+        `/api/slides`,
         {
+          projectId: parseInt(projectId!),
           title: 'New Slide',
           content: 'Click to edit content',
           slide_number: slides.length + 1,
@@ -127,10 +128,11 @@ const EditorPage = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
-      fetchSlides();
+      await fetchSlides();
       setCurrentSlide(slides.length);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error adding slide:', error);
+      alert(`Failed to add slide: ${error.response?.data?.error || error.message}`);
     }
   };
 
@@ -143,12 +145,13 @@ const EditorPage = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       
-      fetchSlides();
+      await fetchSlides();
       if (currentSlide >= slides.length - 1) {
         setCurrentSlide(Math.max(0, slides.length - 2));
       }
     } catch (error) {
       console.error('Error deleting slide:', error);
+      alert('Failed to delete slide');
     }
   };
 
@@ -162,11 +165,11 @@ const EditorPage = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
-      fetchSlides();
+      await fetchSlides();
       alert('Audio generated!');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error generating audio:', error);
-      alert('Failed to generate audio');
+      alert(`Failed to generate audio: ${error.response?.data?.error || error.message}`);
     } finally {
       setGenerating(false);
     }
