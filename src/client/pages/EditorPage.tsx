@@ -279,14 +279,28 @@ const EditorPage = () => {
     setGenerating(true);
     try {
       const token = localStorage.getItem('accessToken');
+      const slide = slides.find(s => s.id === slideId);
+      
+      if (!slide) {
+        alert('Slide not found');
+        return;
+      }
+      
+      // Use content or title as speech text
+      const textToSpeak = slide.content || slide.title || 'Welcome to this slide';
+      
       await axios.post(
         `/api/tts/generate`,
-        { slide_id: slideId },
+        { 
+          text: textToSpeak,
+          voice: 'en-US-AriaNeural',
+          slide_id: slideId 
+        },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
       await fetchSlides();
-      alert('Audio generated!');
+      alert('Audio generated! 🎵');
     } catch (error: any) {
       console.error('Error generating audio:', error);
       alert(`Failed to generate audio: ${error.response?.data?.error || error.message}`);
@@ -512,8 +526,11 @@ const EditorPage = () => {
                     onChange={(e) => setSpeakerNotes(e.target.value)}
                     className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 resize-none"
                     rows={3}
-                    placeholder="What the AI should say..."
+                    placeholder="Optional: Custom narration text..."
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Leave empty to use slide content as narration
+                  </p>
                 </div>
                 
                 {/* Actions */}
