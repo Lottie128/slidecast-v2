@@ -36,6 +36,12 @@ interface SlideElement {
   };
 }
 
+interface ContextMenu {
+  x: number;
+  y: number;
+  elementId: string;
+}
+
 interface Slide {
   id: string;
   order_index: number;
@@ -105,7 +111,7 @@ const textTypePresets = {
 };
 
 const shapePresets = [
-  { type: 'circle', icon: '⭕', name: 'Circle' },
+  { type: 'circle', icon: '⚫', name: 'Circle' },
   { type: 'rectangle', icon: '⬛', name: 'Rectangle' },
   { type: 'triangle', icon: '🔺', name: 'Triangle' },
   { type: 'star', icon: '⭐', name: 'Star' },
@@ -142,6 +148,8 @@ const CanvasElement = memo(({
   onMouseDown, 
   onDoubleClick,
   onTextChange,
+  onContextMenu,
+  onResizeStart,
 }: { 
   element: SlideElement; 
   isSelected: boolean;
@@ -149,6 +157,8 @@ const CanvasElement = memo(({
   onMouseDown: (e: React.MouseEvent) => void;
   onDoubleClick: () => void;
   onTextChange: (text: string) => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  onResizeStart: (e: React.MouseEvent, corner: string) => void;
 }) => {
   const editableRef = useRef<HTMLDivElement>(null);
 
@@ -175,16 +185,30 @@ const CanvasElement = memo(({
     userSelect: isEditing ? 'text' : 'none',
   };
 
+  const renderResizeHandles = () => {
+    if (!isSelected || isEditing) return null;
+    const handleClass = "absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-sm hover:scale-150 transition-transform cursor-pointer";
+    return (
+      <>
+        <div className={`${handleClass} -top-1.5 -left-1.5 cursor-nw-resize`} onMouseDown={(e) => { e.stopPropagation(); onResizeStart(e, 'nw'); }} />
+        <div className={`${handleClass} -top-1.5 -right-1.5 cursor-ne-resize`} onMouseDown={(e) => { e.stopPropagation(); onResizeStart(e, 'ne'); }} />
+        <div className={`${handleClass} -bottom-1.5 -left-1.5 cursor-sw-resize`} onMouseDown={(e) => { e.stopPropagation(); onResizeStart(e, 'sw'); }} />
+        <div className={`${handleClass} -bottom-1.5 -right-1.5 cursor-se-resize`} onMouseDown={(e) => { e.stopPropagation(); onResizeStart(e, 'se'); }} />
+      </>
+    );
+  };
+
   if (element.type === 'text') {
     return (
       <div
         id={`element-${element.id}`}
         onMouseDown={onMouseDown}
         onDoubleClick={onDoubleClick}
-        className={`absolute transition-shadow ${isSelected ? 'ring-2 ring-blue-400 shadow-lg' : 'hover:ring-1 hover:ring-blue-300/50'}`}
+        onContextMenu={onContextMenu}
+        className={`absolute transition-shadow ${isSelected ? 'ring-2 ring-blue-500 shadow-lg' : 'hover:ring-1 hover:ring-blue-300/50'}`}
         style={commonStyle}
       >
-        <div className="absolute -top-6 left-0 bg-blue-500 text-white text-xs px-2 py-0.5 rounded font-bold">
+        <div className="absolute -top-6 left-0 bg-blue-500 text-white text-xs px-2 py-0.5 rounded font-bold z-10">
           {element.readingOrder}
         </div>
         <div
@@ -213,6 +237,7 @@ const CanvasElement = memo(({
         >
           {element.textContent}
         </div>
+        {renderResizeHandles()}
       </div>
     );
   }
@@ -223,7 +248,8 @@ const CanvasElement = memo(({
         id={`element-${element.id}`}
         onMouseDown={onMouseDown}
         onDoubleClick={onDoubleClick}
-        className={`absolute ${isSelected ? 'ring-4 ring-blue-400 shadow-lg' : 'hover:ring-2 hover:ring-blue-300/50'}`}
+        onContextMenu={onContextMenu}
+        className={`absolute ${isSelected ? 'ring-4 ring-blue-500 shadow-xl' : 'hover:ring-2 hover:ring-blue-300/50'}`}
         style={commonStyle}
       >
         <img 
@@ -232,6 +258,7 @@ const CanvasElement = memo(({
           draggable="false" 
           alt=""
         />
+        {renderResizeHandles()}
       </div>
     );
   }
@@ -274,10 +301,12 @@ const CanvasElement = memo(({
       <div
         id={`element-${element.id}`}
         onMouseDown={onMouseDown}
-        className={`absolute ${isSelected ? 'ring-4 ring-blue-400 shadow-lg' : 'hover:ring-2 hover:ring-blue-300/50'}`}
+        onContextMenu={onContextMenu}
+        className={`absolute ${isSelected ? 'ring-4 ring-blue-500 shadow-xl' : 'hover:ring-2 hover:ring-blue-300/50'}`}
         style={commonStyle}
       >
         {shapeElement}
+        {renderResizeHandles()}
       </div>
     );
   }
@@ -303,6 +332,7 @@ const EditorPage = () => {
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showTextTypeModal, setShowTextTypeModal] = useState(false);
   const [showShapeModal, setShowShapeModal] = useState(false);
+  const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
 
   const [bgValue, setBgValue] = useState('linear-gradient(135deg, #667eea 0%, #764ba2 100%)');
   const [bgImageUrl, setBgImageUrl] = useState('');
@@ -311,8 +341,8 @@ const EditorPage = () => {
   const [editingElement, setEditingElement] = useState<string | null>(null);
   
   const [draggingElement, setDraggingElement] = useState<string | null>(null);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0, elemX: 0, elemY: 0 });
-  const rafRef = useRef<number | null>(null);
+  const [resizingElement, setResizingElement] = useState<{ id: string; corner: string } | null>(null);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0, elemX: 0, elemY: 0, elemW: 0, elemH: 0 });
   
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -352,7 +382,28 @@ const EditorPage = () => {
     }
   }, [currentSlide, slides]);
 
-  // DEBOUNCED AUTO-SAVE
+  // DELETE KEY SUPPORT
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (selectedElement && !editingElement && (e.key === 'Delete' || e.key === 'Backspace')) {
+        e.preventDefault();
+        deleteElement(selectedElement);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedElement, editingElement]);
+
+  // CLOSE CONTEXT MENU ON CLICK
+  useEffect(() => {
+    const handleClick = () => setContextMenu(null);
+    if (contextMenu) {
+      window.addEventListener('click', handleClick);
+      return () => window.removeEventListener('click', handleClick);
+    }
+  }, [contextMenu]);
+
   useEffect(() => {
     if (slides[currentSlide]) {
       if (autoSaveTimeoutRef.current) {
@@ -361,7 +412,7 @@ const EditorPage = () => {
       
       autoSaveTimeoutRef.current = setTimeout(() => {
         saveSlideQuietly();
-      }, 1500); // Increased debounce for better performance
+      }, 1500);
     }
     
     return () => {
@@ -371,7 +422,6 @@ const EditorPage = () => {
     };
   }, [elements]);
 
-  // Separate effect for background changes
   useEffect(() => {
     if (slides[currentSlide]) {
       if (autoSaveTimeoutRef.current) {
@@ -434,8 +484,6 @@ const EditorPage = () => {
         backgroundImageUrl: bgImageUrl || null,
         elements,
       };
-
-      console.log('💾 Saving slide with background:', bgImageUrl ? 'Image URL' : bgValue);
 
       await axios.patch(
         `/api/projects/${projectId}/slides/${slides[currentSlide].id}`,
@@ -534,13 +582,10 @@ const EditorPage = () => {
     const rawText = textElements.map(el => el.textContent).join('. ');
     const textToSpeak = cleanTextForTTS(rawText);
     
-    console.log('🎤 TTS Input:', textToSpeak);
-    
     setGenerating(true);
     try {
       const token = localStorage.getItem('accessToken');
       
-      // IMPORTANT: Include current background in request
       await axios.post(
         `/api/tts/generate`,
         { 
@@ -553,7 +598,6 @@ const EditorPage = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
-      // Re-fetch slides but preserve background
       const currentBg = bgValue;
       const currentBgImage = bgImageUrl;
       await fetchSlides();
@@ -572,10 +616,6 @@ const EditorPage = () => {
   const startElementAnimations = () => {
     const currentSlideData = slides[currentSlide];
     if (!currentSlideData || !audioRef.current) return;
-    
-    const audioDuration = typeof currentSlideData.audio_duration === 'string' 
-      ? parseFloat(currentSlideData.audio_duration) 
-      : currentSlideData.audio_duration || 5;
     
     const sortedElements = [...elements].sort((a, b) => a.readingOrder - b.readingOrder);
     
@@ -728,9 +768,7 @@ const EditorPage = () => {
       if (file) {
         const reader = new FileReader();
         reader.onload = (event) => {
-          const newBgImageUrl = event.target?.result as string;
-          setBgImageUrl(newBgImageUrl);
-          console.log('🎨 Background image set:', newBgImageUrl.substring(0, 50));
+          setBgImageUrl(event.target?.result as string);
         };
         reader.readAsDataURL(file);
       }
@@ -745,6 +783,22 @@ const EditorPage = () => {
   const deleteElement = (elementId: string) => {
     setElements(elements.filter(el => el.id !== elementId));
     setSelectedElement(null);
+    setContextMenu(null);
+  };
+
+  const duplicateElement = (elementId: string) => {
+    const element = elements.find(el => el.id === elementId);
+    if (!element) return;
+    
+    const newElement = {
+      ...element,
+      id: `elem-${Date.now()}`,
+      x: element.x + 5,
+      y: element.y + 5,
+    };
+    setElements([...elements, newElement]);
+    setSelectedElement(newElement.id);
+    setContextMenu(null);
   };
 
   const moveElementOrder = (elementId: string, direction: 'up' | 'down') => {
@@ -762,6 +816,18 @@ const EditorPage = () => {
     }
     
     setElements([...sortedElements]);
+  };
+
+  const bringForward = (elementId: string) => {
+    const maxZ = Math.max(...elements.map(el => el.zIndex || 1));
+    updateElement(elementId, { zIndex: maxZ + 1 });
+    setContextMenu(null);
+  };
+
+  const sendBackward = (elementId: string) => {
+    const minZ = Math.min(...elements.map(el => el.zIndex || 1));
+    updateElement(elementId, { zIndex: Math.max(1, minZ - 1) });
+    setContextMenu(null);
   };
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -783,37 +849,82 @@ const EditorPage = () => {
     setSelectedElement(elementId);
     setDraggingElement(elementId);
     
-    const canvasRect = canvasRef.current.getBoundingClientRect();
     setDragStart({
       x: e.clientX,
       y: e.clientY,
       elemX: element.x,
       elemY: element.y,
+      elemW: element.width,
+      elemH: element.height,
     });
   }, [elements, editingElement]);
 
+  const handleResizeStart = useCallback((elementId: string, corner: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    
+    const element = elements.find(el => el.id === elementId);
+    if (!element) return;
+    
+    setSelectedElement(elementId);
+    setResizingElement({ id: elementId, corner });
+    
+    setDragStart({
+      x: e.clientX,
+      y: e.clientY,
+      elemX: element.x,
+      elemY: element.y,
+      elemW: element.width,
+      elemH: element.height,
+    });
+  }, [elements]);
+
   const handleCanvasMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!draggingElement || !canvasRef.current) return;
+    if (!canvasRef.current) return;
     
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-    }
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+    const deltaXPct = ((e.clientX - dragStart.x) / canvasRect.width) * 100;
+    const deltaYPct = ((e.clientY - dragStart.y) / canvasRect.height) * 100;
     
-    rafRef.current = requestAnimationFrame(() => {
-      const canvasRect = canvasRef.current!.getBoundingClientRect();
-      const deltaX = ((e.clientX - dragStart.x) / canvasRect.width) * 100;
-      const deltaY = ((e.clientY - dragStart.y) / canvasRect.height) * 100;
-      
-      const newX = Math.max(0, Math.min(100, dragStart.elemX + deltaX));
-      const newY = Math.max(0, Math.min(100, dragStart.elemY + deltaY));
+    if (draggingElement) {
+      const newX = Math.max(0, Math.min(100, dragStart.elemX + deltaXPct));
+      const newY = Math.max(0, Math.min(100, dragStart.elemY + deltaYPct));
       
       const draggedEl = document.getElementById(`element-${draggingElement}`);
       if (draggedEl) {
-        draggedEl.style.left = `${newX}%`;
-        draggedEl.style.top = `${newY}%`;
+        draggedEl.style.transform = `translate(${deltaXPct}%, ${deltaYPct}%)`;
       }
-    });
-  }, [draggingElement, dragStart]);
+    } else if (resizingElement) {
+      const { id, corner } = resizingElement;
+      let newX = dragStart.elemX;
+      let newY = dragStart.elemY;
+      let newW = dragStart.elemW;
+      let newH = dragStart.elemH;
+      
+      if (corner.includes('e')) {
+        newW = Math.max(5, dragStart.elemW + deltaXPct);
+      }
+      if (corner.includes('w')) {
+        newW = Math.max(5, dragStart.elemW - deltaXPct);
+        newX = dragStart.elemX + deltaXPct;
+      }
+      if (corner.includes('s')) {
+        newH = Math.max(5, dragStart.elemH + deltaYPct);
+      }
+      if (corner.includes('n')) {
+        newH = Math.max(5, dragStart.elemH - deltaYPct);
+        newY = dragStart.elemY + deltaYPct;
+      }
+      
+      const resizedEl = document.getElementById(`element-${id}`);
+      if (resizedEl) {
+        resizedEl.style.left = `${newX}%`;
+        resizedEl.style.top = `${newY}%`;
+        resizedEl.style.width = `${newW}%`;
+        resizedEl.style.height = `${newH}%`;
+      }
+    }
+  }, [draggingElement, resizingElement, dragStart]);
 
   const handleCanvasMouseUp = useCallback(() => {
     if (draggingElement) {
@@ -824,11 +935,27 @@ const EditorPage = () => {
         const finalX = ((rect.left - canvasRect.left) / canvasRect.width) * 100;
         const finalY = ((rect.top - canvasRect.top) / canvasRect.height) * 100;
         
+        // Clear transform and update state
+        draggedEl.style.transform = '';
         updateElement(draggingElement, { x: finalX, y: finalY });
       }
       setDraggingElement(null);
+    } else if (resizingElement) {
+      const { id } = resizingElement;
+      const resizedEl = document.getElementById(`element-${id}`);
+      if (resizedEl && canvasRef.current) {
+        const canvasRect = canvasRef.current.getBoundingClientRect();
+        const rect = resizedEl.getBoundingClientRect();
+        const finalX = ((rect.left - canvasRect.left) / canvasRect.width) * 100;
+        const finalY = ((rect.top - canvasRect.top) / canvasRect.height) * 100;
+        const finalW = (rect.width / canvasRect.width) * 100;
+        const finalH = (rect.height / canvasRect.height) * 100;
+        
+        updateElement(id, { x: finalX, y: finalY, width: finalW, height: finalH });
+      }
+      setResizingElement(null);
     }
-  }, [draggingElement, updateElement]);
+  }, [draggingElement, resizingElement, updateElement]);
 
   const handleElementDoubleClick = useCallback((elementId: string) => {
     const element = elements.find(el => el.id === elementId);
@@ -842,6 +969,13 @@ const EditorPage = () => {
     updateElement(elementId, { textContent: newText });
     setEditingElement(null);
   }, [updateElement]);
+
+  const handleContextMenu = useCallback((elementId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, elementId });
+    setSelectedElement(elementId);
+  }, []);
 
   if (loading) {
     return (
@@ -859,6 +993,29 @@ const EditorPage = () => {
 
   return (
     <div className="h-screen bg-gray-900 flex flex-col">
+      {/* Context Menu */}
+      {contextMenu && (
+        <div 
+          className="fixed bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-2 z-50"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button onClick={() => duplicateElement(contextMenu.elementId)} className="w-full px-4 py-2 text-left text-white hover:bg-gray-700 flex items-center gap-2">
+            <span>📋</span> Duplicate
+          </button>
+          <button onClick={() => bringForward(contextMenu.elementId)} className="w-full px-4 py-2 text-left text-white hover:bg-gray-700 flex items-center gap-2">
+            <span>⬆️</span> Bring Forward
+          </button>
+          <button onClick={() => sendBackward(contextMenu.elementId)} className="w-full px-4 py-2 text-left text-white hover:bg-gray-700 flex items-center gap-2">
+            <span>⬇️</span> Send Backward
+          </button>
+          <hr className="my-2 border-gray-700" />
+          <button onClick={() => deleteElement(contextMenu.elementId)} className="w-full px-4 py-2 text-left text-red-400 hover:bg-red-900/20 flex items-center gap-2">
+            <span>🗑️</span> Delete
+          </button>
+        </div>
+      )}
+
       {/* Template Modal */}
       {showTemplateModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setShowTemplateModal(false)}>
@@ -971,6 +1128,7 @@ const EditorPage = () => {
               onMouseMove={handleCanvasMouseMove}
               onMouseUp={handleCanvasMouseUp}
               onMouseLeave={handleCanvasMouseUp}
+              onContextMenu={(e) => e.preventDefault()}
               className="w-full aspect-video rounded-2xl shadow-2xl relative overflow-hidden"
               style={{ background: bgImageUrl ? `url(${bgImageUrl}) center/cover` : bgValue }}
             >
@@ -985,10 +1143,12 @@ const EditorPage = () => {
                   onMouseDown={(e) => handleElementMouseDown(element.id, e)}
                   onDoubleClick={() => handleElementDoubleClick(element.id)}
                   onTextChange={(text) => handleTextChange(element.id, text)}
+                  onContextMenu={(e) => handleContextMenu(element.id, e)}
+                  onResizeStart={(e, corner) => handleResizeStart(element.id, corner, e)}
                 />
               ))}
             </div>
-            <p className="text-gray-400 text-sm mt-4 text-center">💡 Double-click text to edit • Drag to move • Click to select</p>
+            <p className="text-gray-400 text-sm mt-4 text-center">💡 Double-click text to edit • Right-click for options • DEL to delete • Drag corners to resize</p>
           </div>
         </div>
 
@@ -1039,7 +1199,7 @@ const EditorPage = () => {
                     {element.type === 'text' && (
                       <>
                         <div>
-                          <label className="text-xs text-gray-400">Text (Double-click to edit on canvas)</label>
+                          <label className="text-xs text-gray-400">Text</label>
                           <textarea value={element.textContent} onChange={(e) => updateElement(element.id, { textContent: e.target.value })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" rows={3} />
                         </div>
                         <div>
@@ -1049,10 +1209,16 @@ const EditorPage = () => {
                       </>
                     )}
                     {element.type === 'shape' && (
-                      <div>
-                        <label className="text-xs text-gray-400">Shape Color</label>
-                        <input type="color" value={element.backgroundColor} onChange={(e) => updateElement(element.id, { backgroundColor: e.target.value })} className="w-full h-10 rounded" />
-                      </div>
+                      <>
+                        <div>
+                          <label className="text-xs text-gray-400">Shape Color</label>
+                          <input type="color" value={element.backgroundColor} onChange={(e) => updateElement(element.id, { backgroundColor: e.target.value })} className="w-full h-10 rounded" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-400">Border Width</label>
+                          <input type="number" value={element.borderWidth || 0} onChange={(e) => updateElement(element.id, { borderWidth: parseFloat(e.target.value) })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" min="0" max="20" />
+                        </div>
+                      </>
                     )}
                     <div className="grid grid-cols-2 gap-2">
                       <div>
