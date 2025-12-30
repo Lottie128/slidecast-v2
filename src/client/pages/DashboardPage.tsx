@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 
 const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -11,31 +10,22 @@ const DashboardPage: React.FC = () => {
     loadProjects();
   }, []);
 
-  const loadProjects = async () => {
+  const loadProjects = () => {
     try {
-      const response = await axios.get('/api/projects');
-      if (response.data.success) {
-        setProjects(response.data.projects);
-      }
+      // Load from localStorage
+      const projectsList = JSON.parse(localStorage.getItem('projects') || '[]');
+      setProjects(projectsList);
     } catch (error) {
       console.error('Failed to load projects:', error);
+      setProjects([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const createProject = async () => {
-    try {
-      const response = await axios.post('/api/projects', {
-        name: 'Untitled Project',
-        description: ''
-      });
-      if (response.data.success) {
-        navigate(`/editor/${response.data.project.id}`);
-      }
-    } catch (error) {
-      console.error('Failed to create project:', error);
-    }
+  const createProject = () => {
+    const newProjectId = `project_${Date.now()}`;
+    navigate(`/editor/${newProjectId}`);
   };
 
   const handleLogout = () => {
@@ -46,10 +36,9 @@ const DashboardPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white">
-      {/* Header */}
       <header className="bg-white/10 backdrop-blur-lg border-b border-white/20">
         <div className="container mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-bold">SlidecastV2</h1>
+          <h1 className="text-2xl font-bold">SlideCast V2</h1>
           <div className="flex items-center gap-4">
             <button
               onClick={createProject}
@@ -67,7 +56,6 @@ const DashboardPage: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="container mx-auto px-6 py-12">
         <div className="mb-8">
           <h2 className="text-3xl font-bold mb-2">My Projects</h2>
@@ -93,9 +81,8 @@ const DashboardPage: React.FC = () => {
                 <h3 className="text-lg font-semibold mb-1 group-hover:text-purple-300 transition-colors">
                   {project.name}
                 </h3>
-                <p className="text-sm text-gray-400 mb-2">{project.description || 'No description'}</p>
-                <div className="flex items-center justify-between text-xs text-gray-500">
-                  <span>{project.slideCount} slides</span>
+                <div className="flex items-center justify-between text-xs text-gray-400">
+                  <span>{project.slideCount || 0} slides</span>
                   <span>{new Date(project.updatedAt).toLocaleDateString()}</span>
                 </div>
               </div>
@@ -111,6 +98,14 @@ const DashboardPage: React.FC = () => {
                 <p className="text-lg font-semibold">Create New Project</p>
               </div>
             </div>
+          </div>
+        )}
+
+        {projects.length === 0 && !loading && (
+          <div className="text-center py-12">
+            <p className="text-6xl mb-4">🎨</p>
+            <p className="text-xl font-semibold mb-2">No projects yet</p>
+            <p className="text-gray-400 mb-6">Click "New Project" to get started!</p>
           </div>
         )}
       </main>
