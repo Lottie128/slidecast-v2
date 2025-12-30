@@ -6,7 +6,7 @@ import AudioPanel from '../components/AudioPanel';
 import TemplateGallery from '../components/TemplateGallery';
 import ExportModal from '../components/ExportModal';
 
-// COMPLETE VIDEO PRESENTATION EDITOR - SUPER VISIBLE TOOLBAR!
+// CANVAS-FOCUSED EDITOR - 80% CANVAS, COMPACT EVERYTHING ELSE!
 
 interface SlideElement {
   id: string;
@@ -67,8 +67,7 @@ const EditorPage: React.FC = () => {
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [showGrid, setShowGrid] = useState(false);
-  const [showTimeline, setShowTimeline] = useState(true);
-  const [rightPanel, setRightPanel] = useState<'properties' | 'effects' | 'animations' | 'audio' | 'background'>('audio');
+  const [rightPanel, setRightPanel] = useState<'properties' | 'effects' | 'animations' | 'audio' | 'background'>('properties');
   const [showTemplates, setShowTemplates] = useState(false);
   const [showExport, setShowExport] = useState(false);
   
@@ -81,17 +80,17 @@ const EditorPage: React.FC = () => {
     const updateScale = () => {
       if (canvasRef.current?.parentElement) {
         const container = canvasRef.current.parentElement;
-        const containerWidth = container.clientWidth - 64;
-        const containerHeight = container.clientHeight - 64;
+        const containerWidth = container.clientWidth - 40;
+        const containerHeight = container.clientHeight - 40;
         const scaleX = containerWidth / 1920;
         const scaleY = containerHeight / 1080;
-        setCanvasScale(Math.min(scaleX, scaleY, 0.7));
+        setCanvasScale(Math.min(scaleX, scaleY, 1));
       }
     };
     updateScale();
     window.addEventListener('resize', updateScale);
     return () => window.removeEventListener('resize', updateScale);
-  }, [showTimeline]);
+  }, []);
 
   const currentSlide = slides[currentSlideIndex];
   const elements = currentSlide?.elements || [];
@@ -130,22 +129,22 @@ const EditorPage: React.FC = () => {
     const newElement: SlideElement = {
       id: `element-${Date.now()}`,
       type,
-      x: 30,
-      y: 30,
-      width: type === 'text' ? 300 : type === 'image' ? 400 : 200,
-      height: type === 'text' ? 60 : type === 'image' ? 300 : 200,
+      x: 100,
+      y: 100,
+      width: type === 'text' ? 400 : type === 'image' ? 500 : 300,
+      height: type === 'text' ? 80 : type === 'image' ? 400 : 300,
       content: type === 'text' ? 'Double-click to edit' : '',
       backgroundColor: type === 'shape' ? '#8b5cf6' : 'transparent',
       color: type === 'text' ? '#1f2937' : undefined,
-      fontSize: 32,
+      fontSize: 48,
       fontFamily: 'Inter',
-      fontWeight: 400,
+      fontWeight: 600,
       opacity: 100,
       rotation: 0,
       visible: true,
       locked: false,
       shapeType: shapeType as any || 'rectangle',
-      borderRadius: shapeType === 'circle' ? 9999 : 0,
+      borderRadius: shapeType === 'circle' ? 9999 : 8,
       imageUrl: imageUrl
     };
 
@@ -169,7 +168,7 @@ const EditorPage: React.FC = () => {
   const copySelected = () => setClipboard(elements.filter(el => selectedElements.includes(el.id)));
   const paste = () => {
     if (clipboard.length === 0) return;
-    const pastedElements = clipboard.map(el => ({ ...el, id: `element-${Date.now()}-${Math.random()}`, x: el.x + 20, y: el.y + 20 }));
+    const pastedElements = clipboard.map(el => ({ ...el, id: `element-${Date.now()}-${Math.random()}`, x: el.x + 30, y: el.y + 30 }));
     const command = {
       execute: () => { updateElements([...elements, ...pastedElements]); setSelectedElements(pastedElements.map(el => el.id)); },
       undo: () => updateElements(elements.filter(el => !pastedElements.find(p => p.id === el.id)))
@@ -203,8 +202,8 @@ const EditorPage: React.FC = () => {
     let newX = mouseX - dragOffset.x;
     let newY = mouseY - dragOffset.y;
     if (showGrid) { newX = Math.round(newX / 24) * 24; newY = Math.round(newY / 24) * 24; }
-    newX = Math.max(0, Math.min(1920 - 100, newX));
-    newY = Math.max(0, Math.min(1080 - 100, newY));
+    newX = Math.max(0, Math.min(1920 - 50, newX));
+    newY = Math.max(0, Math.min(1080 - 50, newY));
     updateElement(dragging, { x: newX, y: newY });
   };
 
@@ -282,7 +281,6 @@ const EditorPage: React.FC = () => {
         @keyframes scaleOut { from { transform: scale(1); } to { transform: scale(0); } }
         @keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-20px); } }
-        @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); } 50% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); } }
         
         .animate-fade-in { animation: fadeIn 0.8s ease-out; }
         .animate-fade-out { animation: fadeOut 0.8s ease-out; }
@@ -294,120 +292,65 @@ const EditorPage: React.FC = () => {
         .animate-scale-out { animation: scaleOut 0.8s ease-out; }
         .animate-rotate { animation: rotate 1s ease-out; }
         .animate-bounce { animation: bounce 1s ease; }
-        .btn-pulse { animation: pulse 2s infinite; }
       `}</style>
 
-      {/* SUPER VISIBLE TOOLBAR */}
-      <header className="bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 border-b-2 border-purple-500 shadow-2xl">
-        {/* Top Row - Branding */}
-        <div className="px-6 py-2 flex items-center justify-between border-b border-gray-700">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-pink-600 rounded-lg flex items-center justify-center text-2xl">
-              🎬
-            </div>
-            <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-              SLIDECAST V2
-            </h1>
-          </div>
-          <button onClick={() => navigate('/dashboard')} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">
-            ← Dashboard
+      {/* COMPACT TOOLBAR - SINGLE ROW */}
+      <header className="bg-gray-800 border-b border-gray-700 px-4 py-2.5 flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-4">
+          <button onClick={() => navigate('/dashboard')} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm flex items-center gap-1">
+            ← Back
           </button>
+          <h1 className="text-base font-bold">SlideCast V2</h1>
         </div>
 
-        {/* MASSIVE ADD BUTTONS ROW */}
-        <div className="px-6 py-4 flex items-center justify-center gap-4">
-          <div className="flex gap-3">
-            <button
-              onClick={() => addElement('text')}
-              className="btn-pulse px-8 py-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 rounded-xl text-white font-bold text-lg shadow-lg hover:shadow-blue-500/50 transition-all transform hover:scale-105"
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">📝</span>
-                <span>ADD TEXT</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => addElement('shape', 'rectangle')}
-              className="btn-pulse px-8 py-4 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 rounded-xl text-white font-bold text-lg shadow-lg hover:shadow-purple-500/50 transition-all transform hover:scale-105"
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">▢</span>
-                <span>ADD RECT</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => addElement('shape', 'circle')}
-              className="btn-pulse px-8 py-4 bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 rounded-xl text-white font-bold text-lg shadow-lg hover:shadow-pink-500/50 transition-all transform hover:scale-105"
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">●</span>
-                <span>ADD CIRCLE</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="btn-pulse px-8 py-4 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-xl text-white font-bold text-lg shadow-lg hover:shadow-green-500/50 transition-all transform hover:scale-105"
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">🖼️</span>
-                <span>ADD IMAGE</span>
-              </div>
-            </button>
-            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-          </div>
+        {/* ADD BUTTONS - COMPACT BUT VISIBLE */}
+        <div className="flex items-center gap-2">
+          <button onClick={() => addElement('text')} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-sm font-semibold flex items-center gap-1.5">
+            <span className="text-base">📝</span> Text
+          </button>
+          <button onClick={() => addElement('shape', 'rectangle')} className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 rounded text-sm font-semibold flex items-center gap-1.5">
+            <span className="text-base">▢</span> Rect
+          </button>
+          <button onClick={() => addElement('shape', 'circle')} className="px-4 py-1.5 bg-pink-600 hover:bg-pink-700 rounded text-sm font-semibold flex items-center gap-1.5">
+            <span className="text-base">●</span> Circle
+          </button>
+          <button onClick={() => fileInputRef.current?.click()} className="px-4 py-1.5 bg-green-600 hover:bg-green-700 rounded text-sm font-semibold flex items-center gap-1.5">
+            <span className="text-base">🖼</span> Image
+          </button>
+          <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
         </div>
 
-        {/* Tools Row */}
-        <div className="px-6 py-3 flex items-center justify-between bg-gray-800/50">
-          <div className="flex items-center gap-2">
-            <button onClick={undo} disabled={historyIndex < 0} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-30 text-sm">
-              ↶ Undo
-            </button>
-            <button onClick={redo} disabled={historyIndex >= history.length - 1} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-30 text-sm">
-              ↷ Redo
-            </button>
-            <div className="w-px h-6 bg-gray-600 mx-2"></div>
-            <button onClick={() => setShowGrid(!showGrid)} className={`px-3 py-1.5 rounded text-sm ${showGrid ? 'bg-purple-600' : 'bg-gray-700 hover:bg-gray-600'}`}>
-              # Grid
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button onClick={() => setShowTemplates(true)} className="px-4 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm">
-              📚 Templates
-            </button>
-            <button onClick={() => setShowExport(true)} className="px-6 py-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 rounded-lg text-white font-semibold shadow-lg">
-              📥 Export Video
-            </button>
-          </div>
+        <div className="flex items-center gap-2">
+          <button onClick={undo} disabled={historyIndex < 0} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs disabled:opacity-30">↶</button>
+          <button onClick={redo} disabled={historyIndex >= history.length - 1} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs disabled:opacity-30">↷</button>
+          <button onClick={() => setShowGrid(!showGrid)} className={`px-3 py-1.5 rounded text-xs ${showGrid ? 'bg-purple-600' : 'bg-gray-700'}`}>#</button>
+          <button onClick={() => setShowTemplates(true)} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs">📚</button>
+          <button onClick={() => setShowExport(true)} className="px-4 py-1.5 bg-green-600 hover:bg-green-700 rounded text-sm font-semibold">📥 Export</button>
         </div>
       </header>
 
+      {/* MAIN AREA - CANVAS FOCUSED */}
       <div className="flex-1 flex overflow-hidden">
-        <aside className="w-64 bg-gray-800 border-r border-gray-700 overflow-y-auto flex-shrink-0">
-          <div className="p-4">
-            <h3 className="text-sm font-semibold mb-3">📊 Layers ({elements.length})</h3>
+        {/* LEFT SIDEBAR - COMPACT LAYERS */}
+        <aside className="w-56 bg-gray-800 border-r border-gray-700 overflow-y-auto flex-shrink-0">
+          <div className="p-3">
+            <h3 className="text-xs font-semibold mb-2 text-gray-400 uppercase">Layers ({elements.length})</h3>
             <div className="space-y-1">
               {elements.length === 0 ? (
-                <div className="text-center py-12 text-gray-400">
-                  <p className="text-5xl mb-4 animate-bounce">👆</p>
-                  <p className="text-sm font-bold text-white mb-2">Click the BIG</p>
-                  <p className="text-sm font-bold text-white mb-3">COLORFUL BUTTONS</p>
-                  <p className="text-xs">above to add elements!</p>
+                <div className="text-center py-8 text-gray-500">
+                  <p className="text-3xl mb-2">🎨</p>
+                  <p className="text-xs">Click buttons above to add elements</p>
                 </div>
               ) : (
                 elements.map((element, idx) => (
                   <div key={element.id} onClick={() => setSelectedElements([element.id])}
-                    className={`px-3 py-2 rounded cursor-pointer transition-all ${
-                      selectedElements.includes(element.id) ? 'bg-purple-600 text-white ring-2 ring-purple-400' : 'bg-gray-700 hover:bg-gray-600'
+                    className={`px-2 py-1.5 rounded cursor-pointer text-xs transition-all ${
+                      selectedElements.includes(element.id) ? 'bg-purple-600 text-white' : 'bg-gray-700 hover:bg-gray-600'
                     }`}>
-                    <span className="text-sm truncate">
-                      {element.type === 'text' && '📝'} {element.type === 'shape' && '▢'} {element.type === 'image' && '🖼️'}
-                      {' '}{element.content || element.type} #{idx + 1}
-                    </span>
+                    <div className="flex items-center gap-1 truncate">
+                      {element.type === 'text' && '📝'} {element.type === 'shape' && '▢'} {element.type === 'image' && '🖼'}
+                      <span className="truncate">{element.content || element.type}</span>
+                    </div>
                   </div>
                 ))
               )}
@@ -415,13 +358,14 @@ const EditorPage: React.FC = () => {
           </div>
         </aside>
 
-        <main className="flex-1 flex flex-col items-center justify-center bg-gray-900 p-8" onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}>
+        {/* MASSIVE CANVAS - 80% */}
+        <main className="flex-1 flex items-center justify-center bg-gray-900 p-4" onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}>
           <div ref={canvasRef} className="rounded-lg shadow-2xl relative overflow-hidden"
             style={{
               width: `${1920 * canvasScale}px`,
               height: `${1080 * canvasScale}px`,
               ...getBackgroundStyle(),
-              backgroundImage: showGrid ? `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px), ${getBackgroundStyle().backgroundImage || getBackgroundStyle().background}` : getBackgroundStyle().backgroundImage,
+              backgroundImage: showGrid ? `linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px), ${getBackgroundStyle().backgroundImage || getBackgroundStyle().background}` : getBackgroundStyle().backgroundImage,
               backgroundSize: showGrid ? `${24 * canvasScale}px ${24 * canvasScale}px, ${24 * canvasScale}px ${24 * canvasScale}px, cover` : 'cover'
             }}
             onClick={() => setSelectedElements([])}>
@@ -460,50 +404,48 @@ const EditorPage: React.FC = () => {
               </div>
             ))}
             {elements.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center bg-white/90 backdrop-blur px-12 py-8 rounded-3xl shadow-2xl">
-                  <p className="text-7xl mb-4 animate-bounce">👆</p>
-                  <p className="text-3xl font-black text-gray-800 mb-2">Look Up!</p>
-                  <p className="text-xl text-gray-600">Click the BIG COLORFUL BUTTONS</p>
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="text-center bg-white/90 backdrop-blur px-8 py-6 rounded-2xl">
+                  <p className="text-5xl mb-3">👆</p>
+                  <p className="text-xl font-bold text-gray-800">Click the colorful buttons above!</p>
                 </div>
               </div>
             )}
           </div>
         </main>
 
+        {/* RIGHT SIDEBAR - PROPERTIES */}
         <aside className="w-72 bg-gray-800 border-l border-gray-700 overflow-y-auto flex-shrink-0">
-          <div className="flex border-b border-gray-700 overflow-x-auto">
+          <div className="flex border-b border-gray-700">
             {['properties', 'effects', 'animations', 'audio', 'background'].map((panel) => (
               <button key={panel} onClick={() => setRightPanel(panel as any)}
-                className={`flex-1 py-2 px-2 text-xs font-medium capitalize whitespace-nowrap ${
+                className={`flex-1 py-2 px-1 text-xs font-medium capitalize ${
                   rightPanel === panel ? 'bg-gray-700 text-white border-b-2 border-purple-500' : 'text-gray-400 hover:text-white'
-                }`}>{panel}</button>
+                }`}>{panel.slice(0, 4)}</button>
             ))}
           </div>
-          <div className="p-4">
+          <div className="p-3">
             {rightPanel === 'background' && (
-              <div className="space-y-4">
-                <h4 className="text-sm font-semibold">🎨 Background</h4>
+              <div className="space-y-3">
+                <h4 className="text-xs font-semibold text-gray-300">🎨 Background</h4>
                 <div>
-                  <label className="text-xs text-gray-400 block mb-2">Color</label>
+                  <label className="text-xs text-gray-400 block mb-1">Color</label>
                   <input type="color" value={currentSlide.backgroundType === 'color' ? currentSlide.background : '#ffffff'}
                     onChange={(e) => setSlides(prev => prev.map((slide, idx) => idx === currentSlideIndex ? { ...slide, background: e.target.value, backgroundType: 'color' } : slide))}
-                    className="w-full h-12 rounded" />
+                    className="w-full h-10 rounded" />
                 </div>
-                <div>
-                  <button onClick={() => bgImageInputRef.current?.click()} className="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm">
-                    📷 Upload Background
-                  </button>
-                  <input ref={bgImageInputRef} type="file" accept="image/*" onChange={handleBgImageUpload} className="hidden" />
-                </div>
+                <button onClick={() => bgImageInputRef.current?.click()} className="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded text-xs">
+                  📷 Upload Image
+                </button>
+                <input ref={bgImageInputRef} type="file" accept="image/*" onChange={handleBgImageUpload} className="hidden" />
               </div>
             )}
             {rightPanel === 'audio' && (
-              <div className="space-y-4">
-                <h4 className="text-sm font-semibold">🎤 Audio</h4>
-                <div className="p-3 bg-blue-900/20 border border-blue-700 rounded">
+              <div className="space-y-3">
+                <h4 className="text-xs font-semibold text-gray-300">🎤 Audio</h4>
+                <div className="p-2 bg-blue-900/20 border border-blue-700 rounded">
                   <p className="text-xs text-blue-300 mb-2">✨ Auto-Generate</p>
-                  <button onClick={generateAudioFromSlide} className="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm font-semibold">
+                  <button onClick={generateAudioFromSlide} className="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded text-xs font-semibold">
                     🎙️ Generate Audio
                   </button>
                 </div>
@@ -512,17 +454,51 @@ const EditorPage: React.FC = () => {
               </div>
             )}
             {rightPanel === 'properties' && selectedElement && (
-              <div className="space-y-4">
-                <h4 className="text-sm font-semibold">⚙️ Properties</h4>
+              <div className="space-y-3">
+                <h4 className="text-xs font-semibold text-gray-300">⚙️ Properties</h4>
                 {selectedElement.type === 'text' && (
+                  <>
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-1">Text</label>
+                      <textarea value={selectedElement.content}
+                        onChange={(e) => updateElement(selectedElement.id, { content: e.target.value })}
+                        className="w-full px-2 py-1.5 bg-gray-900 border border-gray-600 rounded text-white text-sm" rows={3} />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-1">Color</label>
+                      <input type="color" value={selectedElement.color || '#000000'}
+                        onChange={(e) => updateElement(selectedElement.id, { color: e.target.value })}
+                        className="w-full h-10 rounded" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-1">Font Size: {selectedElement.fontSize}px</label>
+                      <input type="range" min="12" max="120" value={selectedElement.fontSize || 32}
+                        onChange={(e) => updateElement(selectedElement.id, { fontSize: parseInt(e.target.value) })}
+                        className="w-full" />
+                    </div>
+                  </>
+                )}
+                {selectedElement.type === 'shape' && (
                   <div>
-                    <label className="text-xs text-gray-400 block mb-1">Text</label>
-                    <textarea value={selectedElement.content}
-                      onChange={(e) => updateElement(selectedElement.id, { content: e.target.value })}
-                      className="w-full px-2 py-2 bg-gray-900 border border-gray-600 rounded text-white text-sm" rows={3} />
+                    <label className="text-xs text-gray-400 block mb-1">Fill Color</label>
+                    <input type="color" value={selectedElement.backgroundColor || '#8b5cf6'}
+                      onChange={(e) => updateElement(selectedElement.id, { backgroundColor: e.target.value })}
+                      className="w-full h-10 rounded" />
                   </div>
                 )}
-                <button onClick={deleteSelected} className="w-full py-2 bg-red-600 hover:bg-red-700 rounded text-sm font-semibold">
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Width: {selectedElement.width}px</label>
+                  <input type="range" min="50" max="1920" value={selectedElement.width}
+                    onChange={(e) => updateElement(selectedElement.id, { width: parseInt(e.target.value) })}
+                    className="w-full" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Height: {selectedElement.height}px</label>
+                  <input type="range" min="50" max="1080" value={selectedElement.height}
+                    onChange={(e) => updateElement(selectedElement.id, { height: parseInt(e.target.value) })}
+                    className="w-full" />
+                </div>
+                <button onClick={deleteSelected} className="w-full py-2 bg-red-600 hover:bg-red-700 rounded text-xs font-semibold">
                   🗑️ Delete
                 </button>
               </div>
@@ -530,40 +506,33 @@ const EditorPage: React.FC = () => {
             {rightPanel === 'effects' && selectedElement && <EffectsPanel element={selectedElement} onUpdate={(updates) => updateElement(selectedElement.id, updates)} />}
             {rightPanel === 'animations' && selectedElement && <AnimationPanel element={selectedElement} onUpdate={(updates) => updateElement(selectedElement.id, updates)} />}
             {!selectedElement && rightPanel !== 'audio' && rightPanel !== 'background' && (
-              <p className="text-gray-500 text-sm text-center py-12">Select an element</p>
+              <p className="text-gray-500 text-xs text-center py-12">Select an element</p>
             )}
           </div>
         </aside>
       </div>
 
-      {showTimeline && (
-        <div className="bg-gray-800 border-t border-gray-700" style={{ height: '160px' }}>
-          <div className="p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold">🎬 Timeline ({totalDuration}s)</h3>
-              <button onClick={addSlide} className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 rounded font-semibold">+ Slide</button>
-            </div>
-            <div className="flex gap-2 overflow-x-auto pb-2">
-              {slides.map((slide, index) => (
-                <div key={slide.id} onClick={() => setCurrentSlideIndex(index)}
-                  className={`flex-shrink-0 cursor-pointer ${
-                    currentSlideIndex === index ? 'ring-4 ring-purple-500' : 'opacity-60 hover:opacity-100'
-                  }`} style={{ width: '140px' }}>
-                  <div className="aspect-video rounded mb-1 flex items-center justify-center font-bold text-2xl shadow-lg"
-                    style={{ background: slide.background }}>{slide.elements.length || '+'}</div>
-                  <div className="text-xs text-center">{slide.name} ({slide.duration}s)</div>
-                </div>
-              ))}
-            </div>
+      {/* COMPACT TIMELINE - SMALL THUMBNAILS */}
+      <div className="bg-gray-800 border-t border-gray-700 flex-shrink-0" style={{ height: '100px' }}>
+        <div className="p-2 h-full">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-semibold">Timeline ({totalDuration}s)</h3>
+            <button onClick={addSlide} className="px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-xs">+ Slide</button>
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {slides.map((slide, index) => (
+              <div key={slide.id} onClick={() => setCurrentSlideIndex(index)}
+                className={`flex-shrink-0 cursor-pointer transition-all ${
+                  currentSlideIndex === index ? 'ring-2 ring-purple-500' : 'opacity-60 hover:opacity-100'
+                }`} style={{ width: '80px' }}>
+                <div className="aspect-video rounded flex items-center justify-center text-xs font-bold shadow"
+                  style={{ background: slide.background }}>{slide.elements.length || '+'}</div>
+                <div className="text-xs text-gray-400 text-center mt-0.5">{index + 1}</div>
+              </div>
+            ))}
           </div>
         </div>
-      )}
-
-      <footer className="bg-gray-800 border-t border-gray-700 px-4 py-2 flex items-center justify-between text-xs text-gray-400">
-        <div>Elements: {elements.length} | Selected: {selectedElements.length}</div>
-        <div className="font-bold text-purple-400">✨ DRAG elements to move them!</div>
-        <div>Professional Video Editor</div>
-      </footer>
+      </div>
 
       <TemplateGallery isOpen={showTemplates} onClose={() => setShowTemplates(false)} onApply={applyTemplate} />
       <ExportModal isOpen={showExport} onClose={() => setShowExport(false)} slides={slides} projectName="Presentation" />
