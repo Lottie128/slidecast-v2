@@ -267,23 +267,32 @@ const EditorPage = () => {
                 <div
                   key={slide.id}
                   onClick={() => setCurrentSlide(index)}
-                  className={`p-3 rounded-lg cursor-pointer transition-all ${
+                  className={`rounded-lg cursor-pointer transition-all overflow-hidden ${
                     currentSlide === index
-                      ? 'bg-purple-600 ring-2 ring-purple-400'
-                      : 'bg-gray-700 hover:bg-gray-600'
+                      ? 'ring-2 ring-purple-500 shadow-lg shadow-purple-500/50'
+                      : 'hover:ring-1 hover:ring-gray-600'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-bold text-white">#{index + 1}</span>
+                  {/* Slide Preview */}
+                  <div
+                    className="w-full aspect-video p-3 flex flex-col justify-center"
+                    style={{ background: slide.background_gradient }}
+                  >
+                    <h3 className="text-sm font-bold text-white drop-shadow-lg line-clamp-2 mb-1">
+                      {slide.title}
+                    </h3>
+                    <p className="text-xs text-white/80 drop-shadow line-clamp-2">
+                      {slide.content || 'No content'}
+                    </p>
+                  </div>
+                  
+                  {/* Slide Footer */}
+                  <div className="bg-gray-900/50 px-3 py-2 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-white">#{index + 1}</span>
                     {slide.audio_url && (
                       <span className="text-green-400 text-xs">🎵</span>
                     )}
                   </div>
-                  <div
-                    className="w-full h-16 rounded mb-2"
-                    style={{ background: slide.background_gradient }}
-                  ></div>
-                  <p className="text-xs text-gray-300 truncate">{slide.title}</p>
                 </div>
               ))}
             </div>
