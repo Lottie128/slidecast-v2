@@ -214,14 +214,19 @@ router.post('/:id/slides', async (req: AuthRequest, res) => {
       } as ApiResponse);
     }
     
-    // Get the next order index
+    // Get the current max order index and add 1
     const existingSlides = await getSlidesByProjectId(projectId);
-    const nextOrder = existingSlides.length;
+    const maxOrder = existingSlides.length > 0 
+      ? Math.max(...existingSlides.map((s: any) => s.order_index || 0))
+      : -1;
+    const nextOrder = maxOrder + 1;
+    
+    console.log(`Current slides: ${existingSlides.length}, Max order: ${maxOrder}, Next order: ${nextOrder}`);
     
     // Map frontend field names to backend schema
     const mappedSlideData = {
       projectId,
-      order: slideData.slide_number !== undefined ? slideData.slide_number : nextOrder,
+      order: nextOrder, // Always use calculated next order
       title: slideData.title || 'New Slide',
       content: slideData.content || '',
       backgroundGradient: slideData.background_value || slideData.backgroundGradient || 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
