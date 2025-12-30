@@ -106,18 +106,19 @@ export const deleteProject = async (projectId: string): Promise<boolean> => {
 export const createSlide = async (slideData: Omit<Slide, 'id' | 'createdAt' | 'updatedAt'>): Promise<Slide> => {
   const result = await pool.query(
     `INSERT INTO slides 
-    (project_id, order_index, title, content, background_gradient, elements, audio_url, audio_duration, duration, transition) 
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+    (project_id, order_index, title, content, background_gradient, elements, audio_url, audio_duration, duration, animation_type, transition) 
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
     [
       slideData.projectId,
       slideData.order,
       slideData.title,
       slideData.content,
       slideData.backgroundGradient,
-      JSON.stringify(slideData.elements),
+      JSON.stringify(slideData.elements || []),
       slideData.audioUrl,
       slideData.audioDuration,
-      slideData.duration,
+      slideData.duration || 5.0,
+      slideData.animationType || 'fade',
       slideData.transition ? JSON.stringify(slideData.transition) : null,
     ]
   );
@@ -145,6 +146,7 @@ export const updateSlide = async (slideId: string, updates: Partial<Slide>): Pro
     audioDuration: 'audio_duration',
     duration: 'duration',
     order: 'order_index',
+    animationType: 'animation_type',
   };
   
   Object.entries(updates).forEach(([key, value]) => {
