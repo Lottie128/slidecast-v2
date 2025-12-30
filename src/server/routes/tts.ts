@@ -4,8 +4,8 @@
 
 import { Router } from 'express';
 import { authenticateToken, type AuthRequest } from '../middleware/auth';
-import { generateAudio, getAvailableVoices, generateSlideAudio } from '../services/ttsService';
-import { updateSlide, getSlidesByProjectId } from '../db/queries';
+import { generateAudio, getAvailableVoices } from '../services/ttsService';
+import { updateSlide } from '../db/queries';
 import type { ApiResponse, TTSRequest, TTSResponse, TTSVoice } from '../../types';
 
 const router = Router();
@@ -39,46 +39,35 @@ router.post('/generate', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const { text, voice, rate, pitch, slide_id }: any = req.body;
     
-    // If slide_id provided, get slide content
-    let textToSpeak = text;
-    
-    if (slide_id) {
-      // Get slide from database
-      const slideResult = await updateSlide(slide_id, {});
-      if (!slideResult) {
-        return res.status(404).json({
-          success: false,
-          error: 'Slide not found',
-        } as ApiResponse);
-      }
-      
-      // Use slide content as speech text
-      textToSpeak = (slideResult as any).content || (slideResult as any).title || 'Welcome';
-    }
-    
-    if (!textToSpeak) {
+    // Text is required
+    if (!text) {
       return res.status(400).json({
         success: false,
-        error: 'Text or slide_id is required',
+        error: 'Text is required',
       } as ApiResponse);
     }
     
-    if (textToSpeak.length > 5000) {
+    if (text.length > 5000) {
       return res.status(400).json({
         success: false,
         error: 'Text is too long (max 5000 characters)',
       } as ApiResponse);
     }
     
+    console.log('Generating TTS for text:', text.substring(0, 50) + '...');
+    
     const result = await generateAudio({ 
-      text: textToSpeak, 
+      text, 
       voice: voice || 'en-US-AriaNeural',
       rate: rate || '1.0',
       pitch: pitch || '0'
     });
     
+    console.log('Audio generated:', result);
+    
     // If slide_id provided, update slide with audio URL
     if (slide_id) {
+      console.log('Updating slide with audio:', slide_id);
       await updateSlide(slide_id, {
         audioUrl: result.audioUrl,
         audioDuration: result.duration,
