@@ -6,16 +6,17 @@
   "scripts": {
     "dev": "bun run --hot src/server/server.ts",
     "dev:client": "vite",
-    "dev:server": "bun run --hot src/server/server.ts",
-    "build": "vite build && tsc --noEmit",
+    "dev:server": "PATH=$HOME/.local/bin:$PATH bun run --hot src/server/server.ts",
+    "build": "vite build",
     "build:client": "vite build",
-    "build:server": "tsc --noEmit",
+    "build:server": "echo 'Server build not needed for Bun'",
     "start": "bun src/server/server.ts",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts,.tsx",
     "test": "bun test",
-    "db:migrate": "psql $DATABASE_URL < src/server/db/schema.sql"
+    "db:migrate": "bun scripts/migrate.ts",
+    "setup:tts": "pip3 install edge-tts"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -56,7 +57,9 @@
     "eslint-config-prettier": "^9.1.0",
     "prettier": "^3.1.0",
     "@testing-library/react": "^14.1.0",
-    "bun-types": "latest"
+    "bun-types": "latest",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49"
   },
   "engines": {
     "bun": ">=1.0.0",

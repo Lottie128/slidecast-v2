@@ -1,0 +1,27 @@
+services:
+  # Web Service (Backend + Static Frontend)
+  - type: web
+    name: slidecast-v2
+    runtime: docker
+    repo: https://github.com/Lottie128/slidecast-v2
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5173
+      - key: DATABASE_URL
+        fromDatabase:
+          name: slidecast-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GOOGLE_API_KEY
+        sync: false
+    healthCheckPath: /api/health
+
+  # PostgreSQL Database
+databases:
+  - name: slidecast-db
+    databaseName: slidecast
+    user: slidecast
