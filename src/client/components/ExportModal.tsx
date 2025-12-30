@@ -78,63 +78,131 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     return transform;
   };
 
-  // Generate audio blob from text using Speech Synthesis
-  const generateAudioBlob = async (text: string, duration: number): Promise<Blob> => {
-    return new Promise((resolve, reject) => {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.9;
-      utterance.pitch = 1;
-      utterance.volume = 1;
-
-      // Create audio context to capture speech
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const dest = audioContext.createMediaStreamDestination();
+  // Render a single slide to canvas
+  const renderSlide = async (ctx: CanvasRenderingContext2D, slide: any, width: number, height: number, frameProgress: number, globalAlpha: number = 1, offsetX: number = 0, offsetY: number = 0) => {
+    ctx.save();
+    ctx.globalAlpha = globalAlpha;
+    ctx.translate(offsetX, offsetY);
+    
+    // Background
+    ctx.fillStyle = slide.background || '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    
+    if (slide.backgroundImage) {
+      try {
+        const img = await loadImage(slide.backgroundImage);
+        ctx.drawImage(img, 0, 0, width, height);
+      } catch (e) {
+        console.error('Failed to load background image', e);
+      }
+    }
+    
+    // Elements
+    for (const element of slide.elements || []) {
+      ctx.save();
       
-      // Create a temporary audio element to play and capture
-      const chunks: Blob[] = [];
-      const mediaRecorder = new MediaRecorder(dest.stream);
+      const animTransform = getAnimationTransform(element.animation, frameProgress);
+      ctx.globalAlpha = globalAlpha * ((element.opacity || 100) / 100) * animTransform.opacity;
       
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
-      };
+      const elementX = element.x + animTransform.x;
+      const elementY = element.y + animTransform.y;
+      const centerX = elementX + element.width / 2;
+      const centerY = elementY + element.height / 2;
       
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'audio/webm' });
-        audioContext.close();
-        resolve(blob);
-      };
-
-      // Start recording
-      mediaRecorder.start();
+      ctx.translate(centerX, centerY);
+      ctx.rotate(((element.rotation || 0) + animTransform.rotation) * Math.PI / 180);
+      ctx.scale(animTransform.scale, animTransform.scale);
       
-      // Play speech
-      utterance.onend = () => {
-        setTimeout(() => {
-          mediaRecorder.stop();
-        }, 500);
-      };
+      if (element.shadow) {
+        ctx.shadowColor = `rgba(0,0,0,${element.shadow.opacity || 0.3})`;
+        ctx.shadowBlur = element.shadow.blur || 0;
+        ctx.shadowOffsetX = element.shadow.offsetX || 0;
+        ctx.shadowOffsetY = element.shadow.offsetY || 0;
+      }
       
-      utterance.onerror = (error) => {
-        console.error('Speech synthesis error:', error);
-        mediaRecorder.stop();
-        reject(error);
-      };
-      
-      window.speechSynthesis.speak(utterance);
-      
-      // Fallback timeout
-      setTimeout(() => {
-        if (mediaRecorder.state === 'recording') {
-          mediaRecorder.stop();
+      if (element.type === 'text') {
+        if (element.backgroundColor && element.backgroundColor !== 'transparent') {
+          ctx.fillStyle = element.backgroundColor;
+          const borderRadius = element.borderRadius || 0;
+          roundRect(ctx, -element.width/2, -element.height/2, element.width, element.height, borderRadius);
+          ctx.fill();
         }
-      }, (duration + 2) * 1000);
-    });
+        
+        ctx.font = `${element.fontWeight || 400} ${element.fontSize || 32}px ${element.fontFamily || 'Arial'}`;
+        ctx.fillStyle = element.color || '#000000';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        if (element.blur) ctx.filter = `blur(${element.blur}px)`;
+        
+        const words = (element.content || '').split(' ');
+        const lines: string[] = [];
+        let currentLine = '';
+        
+        for (const word of words) {
+          const testLine = currentLine + (currentLine ? ' ' : '') + word;
+          const metrics = ctx.measureText(testLine);
+          if (metrics.width > element.width - 20 && currentLine) {
+            lines.push(currentLine);
+            currentLine = word;
+          } else {
+            currentLine = testLine;
+          }
+        }
+        if (currentLine) lines.push(currentLine);
+        
+        const lineHeight = element.fontSize || 32;
+        const startY = -(lines.length - 1) * lineHeight / 2;
+        
+        lines.forEach((line, i) => {
+          ctx.fillText(line, 0, startY + i * lineHeight);
+        });
+        
+        ctx.filter = 'none';
+      } else if (element.type === 'shape') {
+        ctx.fillStyle = element.backgroundColor || '#8b5cf6';
+        if (element.blur) ctx.filter = `blur(${element.blur}px)`;
+        
+        if (element.shapeType === 'circle') {
+          ctx.beginPath();
+          ctx.arc(0, 0, Math.min(element.width, element.height) / 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          const borderRadius = element.borderRadius || 0;
+          roundRect(ctx, -element.width/2, -element.height/2, element.width, element.height, borderRadius);
+          ctx.fill();
+        }
+        
+        ctx.filter = 'none';
+      } else if (element.type === 'image' && element.imageUrl) {
+        try {
+          const img = await loadImage(element.imageUrl);
+          if (element.blur) ctx.filter = `blur(${element.blur}px)`;
+          
+          const borderRadius = element.borderRadius || 0;
+          if (borderRadius > 0) {
+            ctx.beginPath();
+            roundRect(ctx, -element.width/2, -element.height/2, element.width, element.height, borderRadius);
+            ctx.clip();
+          }
+          
+          ctx.drawImage(img, -element.width/2, -element.height/2, element.width, element.height);
+          ctx.filter = 'none';
+        } catch (e) {
+          console.error('Failed to load image', e);
+        }
+      }
+      
+      ctx.restore();
+    }
+    
+    ctx.restore();
   };
 
   const exportVideo = async () => {
     setExporting(true);
     setProgress(0);
-    setStatusMessage('Preparing export...');
+    setStatusMessage('Initializing export...');
 
     try {
       const { width, height } = getResolution();
@@ -144,43 +212,10 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       const ctx = canvas.getContext('2d', { alpha: false });
       if (!ctx) throw new Error('Canvas context not available');
 
-      // Create audio context for mixing all slide audio
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
-      const audioDestination = audioContext.createMediaStreamDestination();
-      
-      // Pre-generate all audio for slides
-      setStatusMessage('Generating audio tracks...');
-      const audioBlobs: (Blob | null)[] = [];
-      
-      for (let i = 0; i < slides.length; i++) {
-        const slide = slides[i];
-        if (slide.audioText) {
-          try {
-            const blob = await generateAudioBlob(slide.audioText, slide.duration || 5);
-            audioBlobs.push(blob);
-            setProgress(Math.floor((i + 1) / slides.length * 30)); // 0-30% for audio generation
-          } catch (error) {
-            console.error('Failed to generate audio for slide', i, error);
-            audioBlobs.push(null);
-          }
-        } else {
-          audioBlobs.push(null);
-        }
-      }
-      
-      // Create video stream
       const videoStream = canvas.captureStream(fps);
-      
-      // Combine video stream with audio destination
-      const combinedStream = new MediaStream([
-        ...videoStream.getVideoTracks(),
-        ...audioDestination.stream.getAudioTracks()
-      ]);
-
-      const mediaRecorder = new MediaRecorder(combinedStream, {
-        mimeType: 'video/webm;codecs=vp9,opus',
-        videoBitsPerSecond: quality === '4k' ? 20000000 : quality === '1080p' ? 8000000 : 5000000,
-        audioBitsPerSecond: 128000
+      const mediaRecorder = new MediaRecorder(videoStream, {
+        mimeType: 'video/webm;codecs=vp9',
+        videoBitsPerSecond: quality === '4k' ? 20000000 : quality === '1080p' ? 8000000 : 5000000
       });
 
       const chunks: Blob[] = [];
@@ -196,18 +231,28 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         a.download = `${projectName.replace(/\s+/g, '_')}_${quality}.webm`;
         a.click();
         URL.revokeObjectURL(url);
-        audioContext.close();
         setExporting(false);
         setProgress(100);
         setStatusMessage('✅ Export complete!');
         setTimeout(() => {
-          alert('✅ Video exported successfully!\n\nVideo file downloaded with audio and animations!');
+          alert('✅ Video exported successfully!\n\nVideo with animations and transitions!');
           onClose();
         }, 500);
       };
 
       mediaRecorder.start();
-      setStatusMessage('Recording video with audio...');
+      setStatusMessage('Recording video with transitions...');
+
+      let totalFrames = 0;
+      for (let i = 0; i < slides.length; i++) {
+        const slide = slides[i];
+        totalFrames += Math.floor((slide.duration || 5) * fps);
+        if (i < slides.length - 1 && slide.transition && slide.transition !== 'none') {
+          totalFrames += Math.floor((slide.transitionDuration || 0.5) * fps);
+        }
+      }
+
+      let currentFrame = 0;
 
       // Render each slide
       for (let slideIndex = 0; slideIndex < slides.length; slideIndex++) {
@@ -217,185 +262,56 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         
         setStatusMessage(`Recording slide ${slideIndex + 1}/${slides.length}...`);
 
-        // Play audio for this slide if available
-        let audioSource: AudioBufferSourceNode | null = null;
-        if (audioBlobs[slideIndex]) {
-          try {
-            const audioBlob = audioBlobs[slideIndex]!;
-            const arrayBuffer = await audioBlob.arrayBuffer();
-            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-            
-            audioSource = audioContext.createBufferSource();
-            audioSource.buffer = audioBuffer;
-            audioSource.connect(audioDestination);
-            audioSource.start(audioContext.currentTime);
-          } catch (error) {
-            console.error('Failed to play audio for slide', slideIndex, error);
-            
-            // Fallback: play speech synthesis directly
-            if (slide.audioText) {
-              const utterance = new SpeechSynthesisUtterance(slide.audioText);
-              utterance.rate = 0.9;
-              utterance.pitch = 1;
-              utterance.volume = 1;
-              window.speechSynthesis.cancel();
-              window.speechSynthesis.speak(utterance);
-            }
-          }
-        }
-
-        // Render frames for this slide
+        // Render slide content frames
         for (let frame = 0; frame < frames; frame++) {
           const frameProgress = frame / frames;
-
-          // Clear canvas
-          ctx.fillStyle = slide.background || '#ffffff';
-          ctx.fillRect(0, 0, width, height);
-
-          // Draw background image if exists
-          if (slide.backgroundImage) {
-            try {
-              const img = await loadImage(slide.backgroundImage);
-              ctx.drawImage(img, 0, 0, width, height);
-            } catch (e) {
-              console.error('Failed to load background image', e);
-            }
-          }
-
-          // Draw elements WITH ANIMATIONS
-          for (const element of slide.elements || []) {
-            ctx.save();
-            
-            // Get animation transformation
-            const animTransform = getAnimationTransform(element.animation, frameProgress);
-            
-            // Apply global alpha for opacity and animation
-            ctx.globalAlpha = ((element.opacity || 100) / 100) * animTransform.opacity;
-
-            // Calculate transformed position
-            const elementX = element.x + animTransform.x;
-            const elementY = element.y + animTransform.y;
-            const centerX = elementX + element.width / 2;
-            const centerY = elementY + element.height / 2;
-            
-            // Apply transformations
-            ctx.translate(centerX, centerY);
-            ctx.rotate(((element.rotation || 0) + animTransform.rotation) * Math.PI / 180);
-            ctx.scale(animTransform.scale, animTransform.scale);
-
-            // Apply shadow if exists
-            if (element.shadow) {
-              ctx.shadowColor = `rgba(0,0,0,${element.shadow.opacity || 0.3})`;
-              ctx.shadowBlur = element.shadow.blur || 0;
-              ctx.shadowOffsetX = element.shadow.offsetX || 0;
-              ctx.shadowOffsetY = element.shadow.offsetY || 0;
-            }
-
-            if (element.type === 'text') {
-              // Background for text
-              if (element.backgroundColor && element.backgroundColor !== 'transparent') {
-                ctx.fillStyle = element.backgroundColor;
-                const borderRadius = element.borderRadius || 0;
-                roundRect(ctx, -element.width/2, -element.height/2, element.width, element.height, borderRadius);
-                ctx.fill();
-              }
-              
-              // Text content
-              ctx.font = `${element.fontWeight || 400} ${element.fontSize || 32}px ${element.fontFamily || 'Arial'}`;
-              ctx.fillStyle = element.color || '#000000';
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              
-              // Apply blur if exists
-              if (element.blur) {
-                ctx.filter = `blur(${element.blur}px)`;
-              }
-              
-              // Wrap text
-              const words = (element.content || '').split(' ');
-              const lines: string[] = [];
-              let currentLine = '';
-              
-              for (const word of words) {
-                const testLine = currentLine + (currentLine ? ' ' : '') + word;
-                const metrics = ctx.measureText(testLine);
-                if (metrics.width > element.width - 20 && currentLine) {
-                  lines.push(currentLine);
-                  currentLine = word;
-                } else {
-                  currentLine = testLine;
-                }
-              }
-              if (currentLine) lines.push(currentLine);
-              
-              const lineHeight = element.fontSize || 32;
-              const startY = -(lines.length - 1) * lineHeight / 2;
-              
-              lines.forEach((line, i) => {
-                ctx.fillText(line, 0, startY + i * lineHeight);
-              });
-              
-              ctx.filter = 'none';
-            } else if (element.type === 'shape') {
-              ctx.fillStyle = element.backgroundColor || '#8b5cf6';
-              
-              // Apply blur if exists
-              if (element.blur) {
-                ctx.filter = `blur(${element.blur}px)`;
-              }
-              
-              if (element.shapeType === 'circle') {
-                ctx.beginPath();
-                ctx.arc(0, 0, Math.min(element.width, element.height) / 2, 0, Math.PI * 2);
-                ctx.fill();
-              } else {
-                const borderRadius = element.borderRadius || 0;
-                roundRect(ctx, -element.width/2, -element.height/2, element.width, element.height, borderRadius);
-                ctx.fill();
-              }
-              
-              ctx.filter = 'none';
-            } else if (element.type === 'image' && element.imageUrl) {
-              try {
-                const img = await loadImage(element.imageUrl);
-                
-                // Apply blur if exists
-                if (element.blur) {
-                  ctx.filter = `blur(${element.blur}px)`;
-                }
-                
-                const borderRadius = element.borderRadius || 0;
-                if (borderRadius > 0) {
-                  ctx.beginPath();
-                  roundRect(ctx, -element.width/2, -element.height/2, element.width, element.height, borderRadius);
-                  ctx.clip();
-                }
-                
-                ctx.drawImage(img, -element.width/2, -element.height/2, element.width, element.height);
-                ctx.filter = 'none';
-              } catch (e) {
-                console.error('Failed to load image', e);
-              }
-            }
-
-            ctx.restore();
-          }
-
-          // Update progress (30-100% for video rendering)
-          const totalFrames = slides.reduce((sum, s) => sum + Math.floor((s.duration || 5) * fps), 0);
-          const completedFrames = slides.slice(0, slideIndex).reduce((sum, s) => sum + Math.floor((s.duration || 5) * fps), 0) + frame;
-          const renderProgress = (completedFrames / totalFrames) * 70; // 70% of progress bar
-          setProgress(Math.floor(30 + renderProgress));
-
-          // Wait for next frame
+          ctx.clearRect(0, 0, width, height);
+          await renderSlide(ctx, slide, width, height, frameProgress);
+          
+          currentFrame++;
+          setProgress(Math.floor((currentFrame / totalFrames) * 100));
           await new Promise(resolve => setTimeout(resolve, 1000 / fps));
         }
-        
-        // Small pause between slides
-        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Render transition to next slide (if not last slide)
+        if (slideIndex < slides.length - 1 && slide.transition && slide.transition !== 'none') {
+          const nextSlide = slides[slideIndex + 1];
+          const transitionDuration = (slide.transitionDuration || 0.5) * 1000;
+          const transitionFrames = Math.floor((transitionDuration / 1000) * fps);
+          
+          setStatusMessage(`Transition ${slideIndex + 1} → ${slideIndex + 2}...`);
+          
+          for (let frame = 0; frame < transitionFrames; frame++) {
+            const transitionProgress = frame / transitionFrames;
+            ctx.clearRect(0, 0, width, height);
+            
+            // Render transition based on type
+            if (slide.transition === 'fade') {
+              // Fade: both slides with changing opacity
+              await renderSlide(ctx, slide, width, height, 1, 1 - transitionProgress);
+              await renderSlide(ctx, nextSlide, width, height, 0, transitionProgress);
+            } else if (slide.transition === 'slide-left') {
+              // Slide left: current slide moves left, next slide comes from right
+              await renderSlide(ctx, slide, width, height, 1, 1, -width * transitionProgress, 0);
+              await renderSlide(ctx, nextSlide, width, height, 0, 1, width * (1 - transitionProgress), 0);
+            } else if (slide.transition === 'slide-right') {
+              await renderSlide(ctx, slide, width, height, 1, 1, width * transitionProgress, 0);
+              await renderSlide(ctx, nextSlide, width, height, 0, 1, -width * (1 - transitionProgress), 0);
+            } else if (slide.transition === 'slide-up') {
+              await renderSlide(ctx, slide, width, height, 1, 1, 0, -height * transitionProgress);
+              await renderSlide(ctx, nextSlide, width, height, 0, 1, 0, height * (1 - transitionProgress));
+            } else if (slide.transition === 'slide-down') {
+              await renderSlide(ctx, slide, width, height, 1, 1, 0, height * transitionProgress);
+              await renderSlide(ctx, nextSlide, width, height, 0, 1, 0, -height * (1 - transitionProgress));
+            }
+            
+            currentFrame++;
+            setProgress(Math.floor((currentFrame / totalFrames) * 100));
+            await new Promise(resolve => setTimeout(resolve, 1000 / fps));
+          }
+        }
       }
 
-      window.speechSynthesis.cancel();
       mediaRecorder.stop();
     } catch (error) {
       console.error('Export failed:', error);
@@ -557,8 +473,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         <div className="mb-6 p-3 bg-gray-700 rounded">
           <p className="text-sm text-gray-300"><strong>Slides:</strong> {slides.length}</p>
           <p className="text-sm text-gray-300"><strong>Duration:</strong> {slides.reduce((sum, s) => sum + (s.duration || 5), 0)}s</p>
-          {slides.some(s => s.audioText) && (
-            <p className="text-sm text-green-400 mt-1">✅ Audio enabled ({slides.filter(s => s.audioText).length} slides)</p>
+          {slides.some(s => s.transition && s.transition !== 'none') && (
+            <p className="text-sm text-purple-400 mt-1">🎬 Transitions enabled</p>
           )}
         </div>
 
