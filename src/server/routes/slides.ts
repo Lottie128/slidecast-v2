@@ -125,15 +125,20 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     const slideId = req.params.id;
     const updates = req.body;
     
+    console.log('Updating slide:', slideId, 'with data:', updates);
+    
     // Transform frontend field names to database field names
     const dbUpdates: any = {};
     
     if (updates.title !== undefined) dbUpdates.title = updates.title;
     if (updates.content !== undefined) dbUpdates.content = updates.content;
-    if (updates.speaker_notes !== undefined) dbUpdates.content = updates.speaker_notes;
+    // DON'T map speaker_notes to content - they should be separate fields
+    // if (updates.speaker_notes !== undefined) dbUpdates.content = updates.speaker_notes;
     if (updates.background_value !== undefined) dbUpdates.backgroundGradient = updates.background_value;
     if (updates.audio_url !== undefined) dbUpdates.audioUrl = updates.audio_url;
     if (updates.audio_duration !== undefined) dbUpdates.audioDuration = updates.audio_duration;
+    
+    console.log('Database updates:', dbUpdates);
     
     const updated = await updateSlide(slideId, dbUpdates);
     
@@ -143,6 +148,8 @@ router.patch('/:id', async (req: AuthRequest, res) => {
         error: 'Slide not found',
       } as ApiResponse);
     }
+    
+    console.log('Slide updated successfully');
     
     res.json({
       success: true,
