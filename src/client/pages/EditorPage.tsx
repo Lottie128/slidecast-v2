@@ -42,14 +42,29 @@ const EditorPage = () => {
   const [speakerNotes, setSpeakerNotes] = useState('');
   const [bgValue, setBgValue] = useState('linear-gradient(135deg, #667eea 0%, #764ba2 100%)');
   
-  // Track the last saved state to compare
-  const lastSavedData = useRef({ title: '', content: '', bgValue: '' });
-  const isSwitchingSlides = useRef(false);
+  // Undo stack
+  const [undoStack, setUndoStack] = useState<Slide[]>([]);
+  
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     fetchProject();
     fetchSlides();
   }, [projectId]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+Z or Cmd+Z for undo
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && undoStack.length > 0) {
+        e.preventDefault();
+        undoDeletedSlide();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undoStack]);
 
   // Load slide data when switching slides
   useEffect(() => {
@@ -60,39 +75,46 @@ const EditorPage = () => {
       setSpeakerNotes('');
       setBgValue(slide.background_gradient);
       
-      // Update last saved data reference
-      lastSavedData.current = {
-        title: slide.title,
-        content: slide.content || '',
-        bgValue: slide.background_gradient,
-      };
+      console.log('Loaded slide:', { title: slide.title, content: slide.content });
     } else {
       setTitle('');
       setContent('');
       setSpeakerNotes('');
       setBgValue('linear-gradient(135deg, #667eea 0%, #764ba2 100%)');
-      
-      lastSavedData.current = { title: '', content: '', bgValue: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' };
     }
   }, [currentSlide, slides]);
 
-  // Auto-save only when actual changes are made
+  // Auto-save with debounce
   useEffect(() => {
-    if (!slides[currentSlide] || isSwitchingSlides.current) return;
+    if (!slides[currentSlide]) return;
     
-    // Check if data actually changed from last saved state
+    // Clear previous timeout
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    
+    // Check if data changed from database
+    const slide = slides[currentSlide];
     const hasChanged = 
-      title !== lastSavedData.current.title ||
-      content !== lastSavedData.current.content ||
-      bgValue !== lastSavedData.current.bgValue;
+      title !== slide.title ||
+      content !== (slide.content || '') ||
+      bgValue !== slide.background_gradient;
     
     if (!hasChanged) return;
     
-    const timeoutId = setTimeout(() => {
+    console.log('Change detected, will save in 1s:', { title, content, bgValue });
+    
+    // Set new timeout
+    saveTimeoutRef.current = setTimeout(() => {
+      console.log('Auto-saving now...');
       saveSlide();
     }, 1000);
 
-    return () => clearTimeout(timeoutId);
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
   }, [title, content, bgValue]);
 
   const fetchProject = async () => {
@@ -114,6 +136,7 @@ const EditorPage = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const slideData = response.data.data || [];
+      console.log('Fetched slides:', slideData);
       setSlides(Array.isArray(slideData) ? slideData : []);
     } catch (error) {
       console.error('Error fetching slides:', error);
@@ -136,17 +159,17 @@ const EditorPage = () => {
         background_value: bgValue,
       };
 
+      console.log('Saving slide:', slideData);
+
       await axios.patch(
         `/api/slides/${slides[currentSlide].id}`,
         slideData,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
-      // Update last saved data
-      lastSavedData.current = { title, content, bgValue };
       setLastSaved(new Date());
       
-      // Update local slides array
+      // Update local slides array to match what we just saved
       const updatedSlides = [...slides];
       updatedSlides[currentSlide] = {
         ...updatedSlides[currentSlide],
@@ -155,6 +178,8 @@ const EditorPage = () => {
         background_gradient: bgValue,
       };
       setSlides(updatedSlides);
+      
+      console.log('Slide saved successfully');
     } catch (error) {
       console.error('Error saving slide:', error);
     } finally {
@@ -166,7 +191,6 @@ const EditorPage = () => {
     try {
       // Save current slide before adding new one
       if (slides[currentSlide]) {
-        isSwitchingSlides.current = true;
         await saveSlide();
       }
       
@@ -186,23 +210,20 @@ const EditorPage = () => {
       
       await fetchSlides();
       setCurrentSlide(slides.length);
-      
-      setTimeout(() => {
-        isSwitchingSlides.current = false;
-      }, 200);
     } catch (error: any) {
       console.error('Error adding slide:', error);
       alert(`Failed to add slide: ${error.response?.data?.error || error.message}`);
-      isSwitchingSlides.current = false;
     }
   };
 
   const deleteSlide = async (slideId: string, index: number, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent slide selection
     
-    if (!confirm('Delete this slide?')) return;
-    
     try {
+      // Add to undo stack
+      const deletedSlide = slides[index];
+      setUndoStack([...undoStack, deletedSlide]);
+      
       const token = localStorage.getItem('accessToken');
       await axios.delete(`/api/slides/${slideId}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -216,9 +237,41 @@ const EditorPage = () => {
       } else if (index <= currentSlide) {
         setCurrentSlide(Math.max(0, currentSlide - 1));
       }
+      
+      // Clear undo stack after 5 seconds
+      setTimeout(() => {
+        setUndoStack(prev => prev.filter(s => s.id !== slideId));
+      }, 5000);
     } catch (error) {
       console.error('Error deleting slide:', error);
       alert('Failed to delete slide');
+    }
+  };
+
+  const undoDeletedSlide = async () => {
+    if (undoStack.length === 0) return;
+    
+    try {
+      const slideToRestore = undoStack[undoStack.length - 1];
+      const token = localStorage.getItem('accessToken');
+      
+      await axios.post(
+        `/api/slides`,
+        {
+          projectId: projectId,
+          title: slideToRestore.title,
+          content: slideToRestore.content,
+          slide_number: slides.length,
+          background_type: 'gradient',
+          background_value: slideToRestore.background_gradient,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      setUndoStack(undoStack.slice(0, -1));
+      await fetchSlides();
+    } catch (error) {
+      console.error('Error restoring slide:', error);
     }
   };
 
@@ -247,15 +300,10 @@ const EditorPage = () => {
     
     // Save current slide before switching
     if (slides[currentSlide]) {
-      isSwitchingSlides.current = true;
       await saveSlide();
     }
     
     setCurrentSlide(index);
-    
-    setTimeout(() => {
-      isSwitchingSlides.current = false;
-    }, 200);
   };
 
   if (loading) {
@@ -289,6 +337,9 @@ const EditorPage = () => {
               {saving && <span className="ml-2 text-yellow-400">• Saving...</span>}
               {lastSaved && !saving && (
                 <span className="ml-2 text-green-400">• Saved {lastSaved.toLocaleTimeString()}</span>
+              )}
+              {undoStack.length > 0 && (
+                <span className="ml-2 text-blue-400">• Ctrl+Z to undo</span>
               )}
             </p>
           </div>
@@ -338,7 +389,7 @@ const EditorPage = () => {
                   <button
                     onClick={(e) => deleteSlide(slide.id, index, e)}
                     className="absolute top-2 right-2 z-10 bg-red-600 hover:bg-red-700 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Delete slide"
+                    title="Delete slide (Ctrl+Z to undo)"
                   >
                     ×
                   </button>
@@ -476,7 +527,7 @@ const EditorPage = () => {
                   </button>
                   
                   <button
-                    onClick={() => deleteSlide(slides[currentSlide].id, currentSlide, {} as any)}
+                    onClick={(e) => deleteSlide(slides[currentSlide].id, currentSlide, e as any)}
                     className="w-full py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 font-medium rounded-lg transition-colors"
                   >
                     🗑️ Delete This Slide
