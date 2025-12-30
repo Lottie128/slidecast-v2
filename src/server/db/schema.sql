@@ -39,11 +39,21 @@ CREATE TABLE IF NOT EXISTS slides (
   audio_url TEXT,
   audio_duration NUMERIC(10, 2),
   duration NUMERIC(10, 2) NOT NULL DEFAULT 5.0,
+  animation_type VARCHAR(50) DEFAULT 'fade',
   transition JSONB,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   UNIQUE(project_id, order_index)
 );
+
+-- Add animation_type column if it doesn't exist (for existing databases)
+DO $$ 
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                 WHERE table_name='slides' AND column_name='animation_type') THEN
+    ALTER TABLE slides ADD COLUMN animation_type VARCHAR(50) DEFAULT 'fade';
+  END IF;
+END $$;
 
 -- Video export jobs table
 CREATE TABLE IF NOT EXISTS video_export_jobs (
