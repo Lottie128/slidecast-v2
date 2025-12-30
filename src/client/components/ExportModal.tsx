@@ -38,7 +38,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     if (currentTime < delay) return { x: 0, y: 0, scale: 1, rotation: 0, opacity: animation.type.includes('fade') ? 0 : 1 };
     
     const animProgress = Math.min((currentTime - delay) / duration, 1);
-    const easeProgress = animProgress; // Linear easing for now
+    const easeProgress = animProgress;
     
     const transform = { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 };
     
@@ -78,10 +78,63 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     return transform;
   };
 
+  // Generate audio blob from text using Speech Synthesis
+  const generateAudioBlob = async (text: string, duration: number): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.9;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+
+      // Create audio context to capture speech
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const dest = audioContext.createMediaStreamDestination();
+      
+      // Create a temporary audio element to play and capture
+      const chunks: Blob[] = [];
+      const mediaRecorder = new MediaRecorder(dest.stream);
+      
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+      
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        audioContext.close();
+        resolve(blob);
+      };
+
+      // Start recording
+      mediaRecorder.start();
+      
+      // Play speech
+      utterance.onend = () => {
+        setTimeout(() => {
+          mediaRecorder.stop();
+        }, 500);
+      };
+      
+      utterance.onerror = (error) => {
+        console.error('Speech synthesis error:', error);
+        mediaRecorder.stop();
+        reject(error);
+      };
+      
+      window.speechSynthesis.speak(utterance);
+      
+      // Fallback timeout
+      setTimeout(() => {
+        if (mediaRecorder.state === 'recording') {
+          mediaRecorder.stop();
+        }
+      }, (duration + 2) * 1000);
+    });
+  };
+
   const exportVideo = async () => {
     setExporting(true);
     setProgress(0);
-    setStatusMessage('Initializing export...');
+    setStatusMessage('Preparing export...');
 
     try {
       const { width, height } = getResolution();
@@ -91,14 +144,34 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       const ctx = canvas.getContext('2d', { alpha: false });
       if (!ctx) throw new Error('Canvas context not available');
 
-      // Setup audio context for mixing
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      // Create audio context for mixing all slide audio
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
       const audioDestination = audioContext.createMediaStreamDestination();
+      
+      // Pre-generate all audio for slides
+      setStatusMessage('Generating audio tracks...');
+      const audioBlobs: (Blob | null)[] = [];
+      
+      for (let i = 0; i < slides.length; i++) {
+        const slide = slides[i];
+        if (slide.audioText) {
+          try {
+            const blob = await generateAudioBlob(slide.audioText, slide.duration || 5);
+            audioBlobs.push(blob);
+            setProgress(Math.floor((i + 1) / slides.length * 30)); // 0-30% for audio generation
+          } catch (error) {
+            console.error('Failed to generate audio for slide', i, error);
+            audioBlobs.push(null);
+          }
+        } else {
+          audioBlobs.push(null);
+        }
+      }
       
       // Create video stream
       const videoStream = canvas.captureStream(fps);
       
-      // Combine video and audio streams
+      // Combine video stream with audio destination
       const combinedStream = new MediaStream([
         ...videoStream.getVideoTracks(),
         ...audioDestination.stream.getAudioTracks()
@@ -136,9 +209,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       mediaRecorder.start();
       setStatusMessage('Recording video with audio...');
 
-      let totalElapsedTime = 0;
-      const totalDuration = slides.reduce((sum, s) => sum + (s.duration || 5), 0);
-
       // Render each slide
       for (let slideIndex = 0; slideIndex < slides.length; slideIndex++) {
         const slide = slides[slideIndex];
@@ -147,30 +217,36 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         
         setStatusMessage(`Recording slide ${slideIndex + 1}/${slides.length}...`);
 
-        // Generate and play audio for this slide
-        if (slide.audioText) {
-          const utterance = new SpeechSynthesisUtterance(slide.audioText);
-          utterance.rate = 0.9;
-          utterance.pitch = 1;
-          utterance.volume = 1;
-          
-          // Create audio buffer from speech synthesis
-          const audioOscillator = audioContext.createOscillator();
-          const gainNode = audioContext.createGain();
-          audioOscillator.connect(gainNode);
-          gainNode.connect(audioDestination);
-          gainNode.gain.value = 0.3;
-          audioOscillator.frequency.value = 200;
-          audioOscillator.start(audioContext.currentTime);
-          
-          // Play speech synthesis in parallel
-          window.speechSynthesis.cancel();
-          window.speechSynthesis.speak(utterance);
+        // Play audio for this slide if available
+        let audioSource: AudioBufferSourceNode | null = null;
+        if (audioBlobs[slideIndex]) {
+          try {
+            const audioBlob = audioBlobs[slideIndex]!;
+            const arrayBuffer = await audioBlob.arrayBuffer();
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            
+            audioSource = audioContext.createBufferSource();
+            audioSource.buffer = audioBuffer;
+            audioSource.connect(audioDestination);
+            audioSource.start(audioContext.currentTime);
+          } catch (error) {
+            console.error('Failed to play audio for slide', slideIndex, error);
+            
+            // Fallback: play speech synthesis directly
+            if (slide.audioText) {
+              const utterance = new SpeechSynthesisUtterance(slide.audioText);
+              utterance.rate = 0.9;
+              utterance.pitch = 1;
+              utterance.volume = 1;
+              window.speechSynthesis.cancel();
+              window.speechSynthesis.speak(utterance);
+            }
+          }
         }
 
+        // Render frames for this slide
         for (let frame = 0; frame < frames; frame++) {
           const frameProgress = frame / frames;
-          const slideProgress = (slideIndex + frameProgress) / slides.length;
 
           // Clear canvas
           ctx.fillStyle = slide.background || '#ffffff';
@@ -305,15 +381,15 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
             ctx.restore();
           }
 
-          // Update progress
-          const overallProgress = (slideIndex * frames + frame) / slides.reduce((sum, s) => sum + Math.floor((s.duration || 5) * fps), 0);
-          setProgress(Math.floor(overallProgress * 100));
+          // Update progress (30-100% for video rendering)
+          const totalFrames = slides.reduce((sum, s) => sum + Math.floor((s.duration || 5) * fps), 0);
+          const completedFrames = slides.slice(0, slideIndex).reduce((sum, s) => sum + Math.floor((s.duration || 5) * fps), 0) + frame;
+          const renderProgress = (completedFrames / totalFrames) * 70; // 70% of progress bar
+          setProgress(Math.floor(30 + renderProgress));
 
           // Wait for next frame
           await new Promise(resolve => setTimeout(resolve, 1000 / fps));
         }
-
-        totalElapsedTime += duration;
         
         // Small pause between slides
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -482,7 +558,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
           <p className="text-sm text-gray-300"><strong>Slides:</strong> {slides.length}</p>
           <p className="text-sm text-gray-300"><strong>Duration:</strong> {slides.reduce((sum, s) => sum + (s.duration || 5), 0)}s</p>
           {slides.some(s => s.audioText) && (
-            <p className="text-sm text-green-400 mt-1">✅ Audio enabled</p>
+            <p className="text-sm text-green-400 mt-1">✅ Audio enabled ({slides.filter(s => s.audioText).length} slides)</p>
           )}
         </div>
 
