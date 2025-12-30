@@ -75,13 +75,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Apply updated_at trigger to tables
+-- Drop existing triggers if they exist, then recreate them
+-- This makes the schema idempotent (can run multiple times safely)
+
+DROP TRIGGER IF EXISTS update_users_updated_at ON users;
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_projects_updated_at ON projects;
 CREATE TRIGGER update_projects_updated_at BEFORE UPDATE ON projects
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_slides_updated_at ON slides;
 CREATE TRIGGER update_slides_updated_at BEFORE UPDATE ON slides
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
