@@ -250,6 +250,8 @@ const EditorPage = () => {
     try {
       const token = localStorage.getItem('accessToken');
       
+      console.log('Generating audio for slide:', slides[currentSlide].id);
+      
       await axios.post(
         `/api/tts/generate`,
         { 
@@ -257,10 +259,12 @@ const EditorPage = () => {
           voice: selectedVoice,
           rate: 1.0,
           pitch: 0,
+          slideId: slides[currentSlide].id, // Pass slideId to backend
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
+      // Refetch slides to get updated audio_url
       await fetchSlides();
       alert('Audio generated successfully! Click the play button to listen.');
     } catch (error: any) {
