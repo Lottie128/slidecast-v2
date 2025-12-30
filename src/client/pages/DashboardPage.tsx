@@ -16,9 +16,9 @@ const DashboardPage = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
-  const [newProjectTitle, setNewProjectTitle] = useState('');
-  const [newProjectDescription, setNewProjectDescription] = useState('');
+  const [showModal, setShowModal] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newDescription, setNewDescription] = useState('');
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -32,9 +32,6 @@ const DashboardPage = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       
-      console.log('Projects response:', response.data);
-      
-      // Handle different response structures
       if (response.data.success && Array.isArray(response.data.data)) {
         setProjects(response.data.data);
       } else if (Array.isArray(response.data)) {
@@ -52,23 +49,16 @@ const DashboardPage = () => {
   };
 
   const createProject = async () => {
-    if (!newProjectTitle.trim()) return;
+    if (!newTitle.trim()) return;
     
     setCreating(true);
     try {
       const token = localStorage.getItem('accessToken');
       const response = await axios.post(
         '/api/projects',
-        {
-          title: newProjectTitle,
-          description: newProjectDescription,
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
+        { title: newTitle, description: newDescription },
+        { headers: { Authorization: `Bearer ${token}` } }
       );
-      
-      console.log('Create project response:', response.data);
       
       if (response.data.success) {
         navigate(`/editor/${response.data.data.id}`);
@@ -97,17 +87,17 @@ const DashboardPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 pt-20 pb-12 px-4">
+    <div className="min-h-screen bg-gray-900 pt-20 pb-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
           <div>
             <h1 className="text-4xl font-bold text-white mb-2">My Projects</h1>
-            <p className="text-slate-400">Create stunning AI-narrated video presentations</p>
+            <p className="text-gray-400 text-lg">Create stunning AI-narrated video presentations</p>
           </div>
           <button
-            onClick={() => setShowNewProjectModal(true)}
-            className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 flex items-center gap-2"
+            onClick={() => setShowModal(true)}
+            className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -118,77 +108,115 @@ const DashboardPage = () => {
 
         {/* Error Message */}
         {error && (
-          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/50 rounded-lg text-red-400">
-            {error}
+          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/50 rounded-xl text-red-400">
+            <div className="flex items-center gap-3">
+              <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+              <span>{error}</span>
+            </div>
           </div>
         )}
 
-        {/* Projects Grid */}
+        {/* Loading State */}
         {loading ? (
-          <div className="text-center py-20">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
-            <p className="text-slate-400 mt-4">Loading projects...</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-gray-800 rounded-xl overflow-hidden animate-pulse">
+                <div className="aspect-video bg-gray-700"></div>
+                <div className="p-6">
+                  <div className="h-6 bg-gray-700 rounded mb-3"></div>
+                  <div className="h-4 bg-gray-700 rounded mb-2"></div>
+                  <div className="h-4 bg-gray-700 rounded w-2/3"></div>
+                </div>
+              </div>
+            ))}
           </div>
         ) : projects.length === 0 ? (
+          /* Empty State */
           <div className="text-center py-20">
-            <div className="inline-block p-8 bg-slate-800/50 rounded-full mb-6">
-              <svg className="w-16 h-16 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
+            <div className="inline-flex items-center justify-center w-24 h-24 bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-full mb-6">
+              <svg className="w-12 h-12 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
             </div>
-            <h3 className="text-2xl font-semibold text-white mb-2">No projects yet</h3>
-            <p className="text-slate-400 mb-6">Create your first AI-powered video presentation</p>
+            <h3 className="text-3xl font-bold text-white mb-3">No projects yet</h3>
+            <p className="text-gray-400 text-lg mb-8 max-w-md mx-auto">
+              Create your first AI-powered video presentation and start transforming your ideas into stunning videos
+            </p>
             <button
-              onClick={() => setShowNewProjectModal(true)}
-              className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
+              onClick={() => setShowModal(true)}
+              className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
             >
-              Create Project
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Create Your First Project
             </button>
           </div>
         ) : (
+          /* Projects Grid */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {projects.map((project) => (
               <div
                 key={project.id}
-                className="bg-slate-800/50 backdrop-blur-lg border border-slate-700/50 rounded-xl overflow-hidden hover:border-purple-500/50 transition-all duration-200 hover:shadow-xl hover:shadow-purple-500/10 group"
+                className="group bg-gray-800 rounded-xl overflow-hidden hover:ring-2 hover:ring-purple-500 transition-all duration-200 hover:shadow-2xl hover:shadow-purple-500/20"
               >
                 {/* Thumbnail */}
-                <div className="aspect-video bg-gradient-to-br from-purple-900/50 to-pink-900/50 flex items-center justify-center">
+                <div 
+                  className="aspect-video bg-gradient-to-br from-purple-900/50 to-pink-900/50 flex items-center justify-center cursor-pointer"
+                  onClick={() => navigate(`/editor/${project.id}`)}
+                >
                   {project.thumbnail_url ? (
-                    <img src={project.thumbnail_url} alt={project.title} className="w-full h-full object-cover" />
+                    <img 
+                      src={project.thumbnail_url} 
+                      alt={project.title}
+                      className="w-full h-full object-cover"
+                    />
                   ) : (
-                    <svg className="w-16 h-16 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-16 h-16 text-gray-600 group-hover:text-purple-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                     </svg>
                   )}
                 </div>
 
                 {/* Content */}
-                <div className="p-5">
-                  <h3 className="text-lg font-semibold text-white mb-2 group-hover:text-purple-400 transition-colors">
+                <div className="p-6">
+                  <h3 
+                    className="text-xl font-bold text-white mb-2 group-hover:text-purple-400 transition-colors cursor-pointer truncate"
+                    onClick={() => navigate(`/editor/${project.id}`)}
+                  >
                     {project.title}
                   </h3>
-                  <p className="text-slate-400 text-sm mb-4 line-clamp-2">
+                  <p className="text-gray-400 text-sm mb-4 line-clamp-2 min-h-[2.5rem]">
                     {project.description || 'No description'}
                   </p>
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span>{new Date(project.created_at).toLocaleDateString()}</span>
+                  <div className="flex items-center justify-between text-xs text-gray-500">
+                    <span className="flex items-center gap-1">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      {new Date(project.created_at).toLocaleDateString()}
+                    </span>
+                    <span className="text-purple-400">●</span>
                   </div>
                 </div>
 
                 {/* Actions */}
-                <div className="p-4 bg-slate-900/50 border-t border-slate-700/50 flex gap-2">
-                  <Link
-                    to={`/editor/${project.id}`}
-                    className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-lg text-center transition-colors"
+                <div className="px-6 pb-6 flex gap-2">
+                  <button
+                    onClick={() => navigate(`/editor/${project.id}`)}
+                    className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition-colors"
                   >
                     Edit
-                  </Link>
+                  </button>
                   <button
                     onClick={() => deleteProject(project.id)}
-                    className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 text-sm font-semibold rounded-lg transition-colors"
+                    className="px-4 py-2.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 font-semibold rounded-lg transition-colors"
                   >
-                    Delete
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
                   </button>
                 </div>
               </div>
@@ -197,53 +225,67 @@ const DashboardPage = () => {
         )}
       </div>
 
-      {/* New Project Modal */}
-      {showNewProjectModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 max-w-md w-full">
-            <h2 className="text-2xl font-bold text-white mb-6">Create New Project</h2>
-            
+      {/* Create Project Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-gray-800 rounded-2xl p-8 max-w-md w-full shadow-2xl animate-slide-in-right">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-white">Create New Project</h2>
+              <button
+                onClick={() => setShowModal(false)}
+                className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Project Title</label>
+                <label className="block text-sm font-semibold text-gray-300 mb-2">
+                  Project Title
+                </label>
                 <input
                   type="text"
-                  value={newProjectTitle}
-                  onChange={(e) => setNewProjectTitle(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-900 border-2 border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all"
                   placeholder="My Awesome Presentation"
                   autoFocus
                 />
               </div>
-              
+
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Description (optional)</label>
+                <label className="block text-sm font-semibold text-gray-300 mb-2">
+                  Description (optional)
+                </label>
                 <textarea
-                  value={newProjectDescription}
-                  onChange={(e) => setNewProjectDescription(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
-                  placeholder="Brief description of your project"
+                  value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-900 border-2 border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all resize-none"
                   rows={3}
+                  placeholder="Brief description of your project"
                 />
               </div>
             </div>
 
-            <div className="flex gap-3 mt-6">
+            <div className="flex gap-3 mt-8">
               <button
                 onClick={() => {
-                  setShowNewProjectModal(false);
-                  setNewProjectTitle('');
-                  setNewProjectDescription('');
+                  setShowModal(false);
+                  setNewTitle('');
+                  setNewDescription('');
                 }}
-                className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg transition-colors"
+                className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-colors"
                 disabled={creating}
               >
                 Cancel
               </button>
               <button
                 onClick={createProject}
-                disabled={creating || !newProjectTitle.trim()}
-                className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={creating || !newTitle.trim()}
+                className="flex-1 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {creating ? 'Creating...' : 'Create'}
               </button>
