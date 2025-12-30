@@ -60,14 +60,29 @@ app.use('/api/slides', slideRoutes);
 app.use('/api/tts', ttsRoutes);
 app.use('/api/export', exportRoutes);
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    error: 'Endpoint not found',
-    path: req.path,
+// ============================================
+// SERVE REACT FRONTEND IN PRODUCTION
+// ============================================
+
+if (config.nodeEnv === 'production') {
+  // Serve static files from the React build
+  const clientBuildPath = path.join(process.cwd(), 'dist', 'client');
+  app.use(express.static(clientBuildPath));
+
+  // Handle React Router - send all non-API requests to index.html
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(clientBuildPath, 'index.html'));
   });
-});
+} else {
+  // 404 handler for development (frontend runs separately on Vite)
+  app.use((req, res) => {
+    res.status(404).json({
+      success: false,
+      error: 'Endpoint not found',
+      path: req.path,
+    });
+  });
+}
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
