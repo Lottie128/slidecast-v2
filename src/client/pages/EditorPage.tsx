@@ -1,21 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
 interface Slide {
-  id: number;
-  slide_number: number;
+  id: string;
+  order_index: number;
   title: string;
   content: string;
-  speaker_notes?: string;
-  background_type: string;
-  background_value: string;
+  background_gradient: string;
   audio_url?: string;
+  audio_duration?: number;
 }
 
 interface Project {
-  id: number;
-  title: string;
+  id: string;
+  name: string;
   description: string;
 }
 
@@ -36,11 +35,14 @@ const EditorPage = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [speakerNotes, setSpeakerNotes] = useState('');
   const [bgValue, setBgValue] = useState('linear-gradient(135deg, #667eea 0%, #764ba2 100%)');
+  
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     fetchProject();
@@ -52,10 +54,30 @@ const EditorPage = () => {
       const slide = slides[currentSlide];
       setTitle(slide.title);
       setContent(slide.content);
-      setSpeakerNotes(slide.speaker_notes || '');
-      setBgValue(slide.background_value);
+      setBgValue(slide.background_gradient);
     }
   }, [currentSlide, slides]);
+
+  // Auto-save when title, content, or background changes
+  useEffect(() => {
+    if (slides[currentSlide]) {
+      // Clear existing timeout
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+      
+      // Set new timeout for auto-save (500ms debounce)
+      autoSaveTimeoutRef.current = setTimeout(() => {
+        saveSlideQuietly();
+      }, 500);
+    }
+    
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, [title, content, bgValue]);
 
   const fetchProject = async () => {
     try {
@@ -85,84 +107,110 @@ const EditorPage = () => {
     }
   };
 
-  const saveSlide = async () => {
+  const saveSlideQuietly = async () => {
+    if (!slides[currentSlide]) return;
+    
     try {
       const token = localStorage.getItem('accessToken');
       const slideData = {
         title,
         content,
-        speaker_notes: speakerNotes,
-        background_type: 'gradient',
-        background_value: bgValue,
+        backgroundGradient: bgValue,
       };
 
-      if (slides[currentSlide]) {
-        await axios.put(
-          `/api/slides/${slides[currentSlide].id}`,
-          slideData,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-      }
+      await axios.patch(
+        `/api/projects/${projectId}/slides/${slides[currentSlide].id}`,
+        slideData,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       
-      fetchSlides();
+      setLastSaved(new Date());
+      
+      // Update local state without refetching
+      setSlides(prev => prev.map((s, i) => 
+        i === currentSlide 
+          ? { ...s, title, content, background_gradient: bgValue }
+          : s
+      ));
+    } catch (error) {
+      console.error('Error auto-saving slide:', error);
+    }
+  };
+
+  const saveSlide = async () => {
+    setSaving(true);
+    try {
+      await saveSlideQuietly();
       alert('Slide saved!');
     } catch (error) {
-      console.error('Error saving slide:', error);
       alert('Failed to save slide');
+    } finally {
+      setSaving(false);
     }
   };
 
   const addSlide = async () => {
     try {
       const token = localStorage.getItem('accessToken');
-      await axios.post(
+      const response = await axios.post(
         `/api/projects/${projectId}/slides`,
         {
           title: 'New Slide',
           content: 'Click to edit content',
-          slide_number: slides.length + 1,
+          slide_number: slides.length,
           background_type: 'gradient',
           background_value: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
-      fetchSlides();
+      await fetchSlides();
       setCurrentSlide(slides.length);
     } catch (error) {
       console.error('Error adding slide:', error);
+      alert('Failed to add slide');
     }
   };
 
-  const deleteSlide = async (slideId: number) => {
+  const deleteSlide = async (slideId: string) => {
     if (!confirm('Delete this slide?')) return;
     
     try {
       const token = localStorage.getItem('accessToken');
-      await axios.delete(`/api/slides/${slideId}`, {
+      await axios.delete(`/api/projects/${projectId}/slides/${slideId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       
-      fetchSlides();
+      await fetchSlides();
       if (currentSlide >= slides.length - 1) {
         setCurrentSlide(Math.max(0, slides.length - 2));
       }
     } catch (error) {
       console.error('Error deleting slide:', error);
+      alert('Failed to delete slide');
     }
   };
 
-  const generateAudio = async (slideId: number) => {
+  const generateAudio = async () => {
+    if (!slides[currentSlide]) return;
+    
     setGenerating(true);
     try {
       const token = localStorage.getItem('accessToken');
+      
+      // Generate audio using current slide's title and content
+      const textToSpeak = `${title}. ${content}`;
+      
       await axios.post(
         `/api/tts/generate`,
-        { slide_id: slideId },
+        { 
+          slideId: slides[currentSlide].id,
+          text: textToSpeak 
+        },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
-      fetchSlides();
+      await fetchSlides();
       alert('Audio generated!');
     } catch (error) {
       console.error('Error generating audio:', error);
@@ -197,17 +245,23 @@ const EditorPage = () => {
             </svg>
           </button>
           <div>
-            <h1 className="text-xl font-bold text-white">{project?.title}</h1>
-            <p className="text-sm text-gray-400">{slides.length} slides</p>
+            <h1 className="text-xl font-bold text-white">{project?.name}</h1>
+            <p className="text-sm text-gray-400">
+              {slides.length} slides
+              {lastSaved && (
+                <span className="ml-2 text-green-400">• Saved {lastSaved.toLocaleTimeString()}</span>
+              )}
+            </p>
           </div>
         </div>
         
         <div className="flex gap-3">
           <button
             onClick={saveSlide}
-            className="px-5 py-2.5 bg-gray-700 hover:bg-gray-600 text-white font-medium rounded-lg transition-colors"
+            disabled={saving}
+            className="px-5 py-2.5 bg-gray-700 hover:bg-gray-600 text-white font-medium rounded-lg transition-colors disabled:opacity-50"
           >
-            💾 Save
+            {saving ? '⏳ Saving...' : '💾 Save'}
           </button>
           <button className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-medium rounded-lg transition-all">
             🎬 Export Video
@@ -244,11 +298,19 @@ const EditorPage = () => {
                       <span className="text-green-400 text-xs">🎵</span>
                     )}
                   </div>
+                  
+                  {/* Thumbnail Preview with actual content */}
                   <div
-                    className="w-full h-16 rounded mb-2"
-                    style={{ background: slide.background_value }}
-                  ></div>
-                  <p className="text-xs text-gray-300 truncate">{slide.title}</p>
+                    className="w-full h-20 rounded mb-2 flex flex-col justify-center px-2 py-2 overflow-hidden"
+                    style={{ background: slide.background_gradient }}
+                  >
+                    <p className="text-white text-[10px] font-bold leading-tight truncate drop-shadow">
+                      {slide.title}
+                    </p>
+                    <p className="text-white/80 text-[8px] leading-tight line-clamp-2 drop-shadow mt-0.5">
+                      {slide.content}
+                    </p>
+                  </div>
                 </div>
               ))}
             </div>
@@ -296,7 +358,7 @@ const EditorPage = () => {
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 resize-none"
-                rows={4}
+                rows={6}
                 placeholder="Slide content"
               />
             </div>
@@ -321,33 +383,23 @@ const EditorPage = () => {
               </div>
             </div>
             
-            {/* Speaker Notes */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-300 mb-2">
-                Speaker Notes (AI Voice)
-              </label>
-              <textarea
-                value={speakerNotes}
-                onChange={(e) => setSpeakerNotes(e.target.value)}
-                className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 resize-none"
-                rows={3}
-                placeholder="What the AI should say..."
-              />
-            </div>
-            
-            {/* Actions */}
-            <div className="pt-4 border-t border-gray-700 space-y-3">
+            {/* Audio Generation Info */}
+            <div className="pt-4 border-t border-gray-700">
+              <p className="text-sm text-gray-400 mb-3">
+                💡 Audio will be generated from the current slide's title and content
+              </p>
+              
               <button
-                onClick={() => slides[currentSlide] && generateAudio(slides[currentSlide].id)}
+                onClick={generateAudio}
                 disabled={generating || !slides[currentSlide]}
-                className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-3"
               >
                 {generating ? '⏳ Generating...' : '🎤 Generate Audio'}
               </button>
               
               <button
                 onClick={() => slides[currentSlide] && deleteSlide(slides[currentSlide].id)}
-                disabled={!slides[currentSlide]}
+                disabled={!slides[currentSlide] || slides.length === 1}
                 className="w-full py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 🗑️ Delete Slide
