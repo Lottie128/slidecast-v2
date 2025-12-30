@@ -200,6 +200,8 @@ router.post('/:id/slides', async (req: AuthRequest, res) => {
     const projectId = req.params.id;
     const slideData = req.body;
     
+    console.log('Creating slide with data:', JSON.stringify(slideData));
+    
     // Verify project ownership
     const project = await getProjectById(projectId);
     if (!project || (project as any).user_id !== userId) {
@@ -209,11 +211,29 @@ router.post('/:id/slides', async (req: AuthRequest, res) => {
       } as ApiResponse);
     }
     
-    // Add projectId to slide data
-    const slide = await createSlide({
-      ...slideData,
+    // Get the next order index
+    const existingSlides = await getSlidesByProjectId(projectId);
+    const nextOrder = existingSlides.length;
+    
+    // Map frontend field names to backend schema
+    const mappedSlideData = {
       projectId,
-    });
+      order: slideData.slide_number !== undefined ? slideData.slide_number : nextOrder,
+      title: slideData.title || 'New Slide',
+      content: slideData.content || '',
+      backgroundGradient: slideData.background_value || slideData.backgroundGradient || 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      elements: slideData.elements || [],
+      audioUrl: slideData.audioUrl || slideData.audio_url || null,
+      audioDuration: slideData.audioDuration || slideData.audio_duration || null,
+      duration: slideData.duration || 5,
+      transition: slideData.transition || null,
+    };
+    
+    console.log('Mapped slide data:', JSON.stringify(mappedSlideData));
+    
+    const slide = await createSlide(mappedSlideData);
+    
+    console.log('Slide created successfully:', slide.id);
     
     res.status(201).json({
       success: true,
@@ -221,6 +241,7 @@ router.post('/:id/slides', async (req: AuthRequest, res) => {
     } as ApiResponse<Slide>);
   } catch (error: any) {
     console.error('Create slide error:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
       error: error.message,
