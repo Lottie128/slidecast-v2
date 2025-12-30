@@ -157,7 +157,6 @@ const EditorPage = () => {
         {
           title: 'New Slide',
           content: 'Click to edit content',
-          slide_number: slides.length,
           background_type: 'gradient',
           background_value: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         },
@@ -172,7 +171,17 @@ const EditorPage = () => {
     }
   };
 
-  const deleteSlide = async (slideId: string) => {
+  const deleteSlide = async (slideId: string, event?: React.MouseEvent) => {
+    // Prevent triggering slide selection when clicking delete
+    if (event) {
+      event.stopPropagation();
+    }
+    
+    if (slides.length === 1) {
+      alert('Cannot delete the last slide');
+      return;
+    }
+    
     if (!confirm('Delete this slide?')) return;
     
     try {
@@ -286,7 +295,7 @@ const EditorPage = () => {
                 <div
                   key={slide.id}
                   onClick={() => setCurrentSlide(index)}
-                  className={`p-3 rounded-lg cursor-pointer transition-all ${
+                  className={`p-3 rounded-lg cursor-pointer transition-all relative group ${
                     currentSlide === index
                       ? 'bg-purple-600 ring-2 ring-purple-400'
                       : 'bg-gray-700 hover:bg-gray-600'
@@ -294,9 +303,19 @@ const EditorPage = () => {
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-bold text-white">#{index + 1}</span>
-                    {slide.audio_url && (
-                      <span className="text-green-400 text-xs">🎵</span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {slide.audio_url && (
+                        <span className="text-green-400 text-xs">🎵</span>
+                      )}
+                      {/* Delete X button */}
+                      <button
+                        onClick={(e) => deleteSlide(slide.id, e)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold"
+                        title="Delete slide"
+                      >
+                        ×
+                      </button>
+                    </div>
                   </div>
                   
                   {/* Thumbnail Preview with actual content */}
