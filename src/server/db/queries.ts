@@ -57,7 +57,7 @@ export const getProjectsByUserId = async (userId: string, page = 1, pageSize = 2
   );
   
   return {
-    items: result.rows,
+    projects: result.rows, // Changed from 'items' to 'projects'
     total: parseInt(countResult.rows[0].count, 10),
     page,
     pageSize,
@@ -85,6 +85,8 @@ export const updateProject = async (projectId: string, updates: Partial<Project>
   
   if (fields.length === 0) return null;
   
+  fields.push(`updated_at = NOW()`);
+  
   values.push(projectId);
   const result = await pool.query(
     `UPDATE projects SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
@@ -104,24 +106,43 @@ export const deleteProject = async (projectId: string): Promise<boolean> => {
 // ============================================
 
 export const createSlide = async (slideData: Omit<Slide, 'id' | 'createdAt' | 'updatedAt'>): Promise<Slide> => {
-  const result = await pool.query(
-    `INSERT INTO slides 
-    (project_id, order_index, title, content, background_gradient, elements, audio_url, audio_duration, duration, transition) 
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-    [
-      slideData.projectId,
-      slideData.order,
-      slideData.title,
-      slideData.content,
-      slideData.backgroundGradient,
-      JSON.stringify(slideData.elements),
-      slideData.audioUrl,
-      slideData.audioDuration,
-      slideData.duration,
-      slideData.transition ? JSON.stringify(slideData.transition) : null,
-    ]
-  );
-  return result.rows[0];
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    // Insert slide
+    const slideResult = await client.query(
+      `INSERT INTO slides 
+      (project_id, order_index, title, content, background_gradient, elements, audio_url, audio_duration, duration, transition) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [
+        slideData.projectId,
+        slideData.order,
+        slideData.title,
+        slideData.content,
+        slideData.backgroundGradient,
+        JSON.stringify(slideData.elements),
+        slideData.audioUrl,
+        slideData.audioDuration,
+        slideData.duration,
+        slideData.transition ? JSON.stringify(slideData.transition) : null,
+      ]
+    );
+    
+    // Update project's updated_at timestamp
+    await client.query(
+      'UPDATE projects SET updated_at = NOW() WHERE id = $1',
+      [slideData.projectId]
+    );
+    
+    await client.query('COMMIT');
+    return slideResult.rows[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 export const getSlidesByProjectId = async (projectId: string): Promise<Slide[]> => {
@@ -167,12 +188,31 @@ export const updateSlide = async (slideId: string, updates: Partial<Slide>): Pro
   if (fields.length === 0) return null;
   
   values.push(slideId);
-  const result = await pool.query(
-    `UPDATE slides SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
-    values
-  );
   
-  return result.rows[0] || null;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    // Update slide
+    const slideResult = await client.query(
+      `UPDATE slides SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+      values
+    );
+    
+    // Update project's updated_at timestamp
+    await client.query(
+      'UPDATE projects SET updated_at = NOW() WHERE id = (SELECT project_id FROM slides WHERE id = $1)',
+      [slideId]
+    );
+    
+    await client.query('COMMIT');
+    return slideResult.rows[0] || null;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 export const deleteSlide = async (slideId: string): Promise<boolean> => {
