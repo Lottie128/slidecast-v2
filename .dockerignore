@@ -1,0 +1,11 @@
+node_modules
+.git
+.env
+.env.local
+dist
+build
+*.log
+storage/audio/*
+storage/video/*
+storage/images/*
+.DS_Store
