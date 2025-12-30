@@ -18,6 +18,12 @@ interface Project {
   description: string;
 }
 
+interface Voice {
+  id: string;
+  name: string;
+  languageCode: string;
+}
+
 const gradientPresets = [
   { name: 'Sunset', value: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' },
   { name: 'Ocean', value: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
@@ -37,6 +43,8 @@ const EditorPage = () => {
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [voices, setVoices] = useState<Voice[]>([]);
+  const [selectedVoice, setSelectedVoice] = useState<string>('en-US-Standard-A');
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -47,6 +55,7 @@ const EditorPage = () => {
   useEffect(() => {
     fetchProject();
     fetchSlides();
+    fetchVoices();
   }, [projectId]);
 
   useEffect(() => {
@@ -104,6 +113,15 @@ const EditorPage = () => {
       setSlides([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchVoices = async () => {
+    try {
+      const response = await axios.get('/api/tts/voices');
+      setVoices(response.data.data || []);
+    } catch (error) {
+      console.error('Error fetching voices:', error);
     }
   };
 
@@ -203,27 +221,34 @@ const EditorPage = () => {
   const generateAudio = async () => {
     if (!slides[currentSlide]) return;
     
+    // Validate content
+    const textToSpeak = `${title}. ${content}`.trim();
+    if (!textToSpeak || textToSpeak === '.') {
+      alert('Please add title and content before generating audio');
+      return;
+    }
+    
     setGenerating(true);
     try {
       const token = localStorage.getItem('accessToken');
       
-      // Generate audio using current slide's title and content
-      const textToSpeak = `${title}. ${content}`;
-      
       await axios.post(
         `/api/tts/generate`,
         { 
-          slideId: slides[currentSlide].id,
-          text: textToSpeak 
+          text: textToSpeak,
+          voice: selectedVoice,
+          rate: 1.0,
+          pitch: 0.0,
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
       await fetchSlides();
-      alert('Audio generated!');
-    } catch (error) {
+      alert('Audio generated successfully!');
+    } catch (error: any) {
       console.error('Error generating audio:', error);
-      alert('Failed to generate audio');
+      const errorMsg = error.response?.data?.error || 'Failed to generate audio';
+      alert(errorMsg);
     } finally {
       setGenerating(false);
     }
@@ -402,7 +427,27 @@ const EditorPage = () => {
               </div>
             </div>
             
-            {/* Audio Generation Info */}
+            {/* Voice Selection */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-300 mb-2">AI Voice</label>
+              <select
+                value={selectedVoice}
+                onChange={(e) => setSelectedVoice(e.target.value)}
+                className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
+              >
+                {voices.length > 0 ? (
+                  voices.map((voice) => (
+                    <option key={voice.id} value={voice.id}>
+                      {voice.name}
+                    </option>
+                  ))
+                ) : (
+                  <option value="en-US-Standard-A">English (US) - Female</option>
+                )}
+              </select>
+            </div>
+            
+            {/* Audio Generation */}
             <div className="pt-4 border-t border-gray-700">
               <p className="text-sm text-gray-400 mb-3">
                 💡 Audio will be generated from the current slide's title and content
