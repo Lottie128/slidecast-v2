@@ -6,7 +6,7 @@ import AudioPanel from '../components/AudioPanel';
 import TemplateGallery from '../components/TemplateGallery';
 import ExportModal from '../components/ExportModal';
 
-// COMPLETE VIDEO EDITOR - AUDIO, RESIZE, DELETE, TEXT EFFECTS!
+// LAUNCH-READY VIDEO EDITOR - SAVE, PREVIEW, EXPORT!
 
 interface SlideElement {
   id: string;
@@ -42,12 +42,22 @@ interface Slide {
   backgroundImage?: string;
   duration: number;
   audioUrl?: string;
+  audioText?: string;
+}
+
+interface Project {
+  id: string;
+  name: string;
+  slides: Slide[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 const EditorPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   
+  const [projectName, setProjectName] = useState('Untitled Project');
   const [slides, setSlides] = useState<Slide[]>([{ id: 'slide-1', name: 'Slide 1', elements: [], background: '#ffffff', backgroundType: 'color', duration: 5 }]);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [selectedElements, setSelectedElements] = useState<string[]>([]);
@@ -66,12 +76,57 @@ const EditorPage: React.FC = () => {
   const [showExport, setShowExport] = useState(false);
   const [audioGenerating, setAudioGenerating] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; slideIndex: number } | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewSlide, setPreviewSlide] = useState(0);
+  const previewIntervalRef = useRef<any>(null);
   
   const canvasRef = useRef<HTMLDivElement>(null);
   const [canvasScale, setCanvasScale] = useState(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bgImageInputRef = useRef<HTMLInputElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
+
+  // LOAD PROJECT FROM LOCALSTORAGE
+  useEffect(() => {
+    if (projectId && projectId !== 'new') {
+      const savedProject = localStorage.getItem(`project_${projectId}`);
+      if (savedProject) {
+        const project: Project = JSON.parse(savedProject);
+        setProjectName(project.name);
+        setSlides(project.slides);
+      }
+    }
+  }, [projectId]);
+
+  // AUTO-SAVE PROJECT
+  useEffect(() => {
+    if (!projectId) return;
+    const project: Project = {
+      id: projectId,
+      name: projectName,
+      slides,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    localStorage.setItem(`project_${projectId}`, JSON.stringify(project));
+    
+    // Update projects list
+    const projectsList = JSON.parse(localStorage.getItem('projects') || '[]');
+    const existingIndex = projectsList.findIndex((p: any) => p.id === projectId);
+    const projectMeta = {
+      id: projectId,
+      name: projectName,
+      slideCount: slides.length,
+      updatedAt: new Date().toISOString()
+    };
+    
+    if (existingIndex >= 0) {
+      projectsList[existingIndex] = projectMeta;
+    } else {
+      projectsList.push(projectMeta);
+    }
+    localStorage.setItem('projects', JSON.stringify(projectsList));
+  }, [slides, projectName, projectId]);
 
   useEffect(() => {
     const updateScale = () => {
@@ -89,13 +144,13 @@ const EditorPage: React.FC = () => {
     return () => window.removeEventListener('resize', updateScale);
   }, []);
 
-  const currentSlide = slides[currentSlideIndex];
+  const currentSlide = previewing ? slides[previewSlide] : slides[currentSlideIndex];
   const elements = currentSlide?.elements || [];
   const selectedElement = selectedElements.length === 1 ? elements.find(el => el.id === selectedElements[0]) : null;
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (editing) return;
+      if (editing || previewing) return;
       if (e.ctrlKey && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
       if (e.ctrlKey && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
       if (e.ctrlKey && e.key === 'a') { e.preventDefault(); setSelectedElements(elements.map(el => el.id)); }
@@ -106,7 +161,7 @@ const EditorPage: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedElements, elements, editing]);
+  }, [selectedElements, elements, editing, previewing]);
 
   const executeCommand = (command: any) => {
     command.execute();
@@ -178,6 +233,7 @@ const EditorPage: React.FC = () => {
   };
 
   const handleMouseDown = (e: React.MouseEvent, elementId: string) => {
+    if (previewing) return;
     e.stopPropagation();
     const element = elements.find(el => el.id === elementId);
     if (!element || element.locked) return;
@@ -192,6 +248,7 @@ const EditorPage: React.FC = () => {
   };
 
   const handleResizeStart = (e: React.MouseEvent, elementId: string, handle: string) => {
+    if (previewing) return;
     e.stopPropagation();
     const element = elements.find(el => el.id === elementId);
     if (!element) return;
@@ -205,7 +262,7 @@ const EditorPage: React.FC = () => {
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!canvasRef.current) return;
+    if (previewing || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const mouseX = (e.clientX - rect.left) / canvasScale;
     const mouseY = (e.clientY - rect.top) / canvasScale;
@@ -237,6 +294,7 @@ const EditorPage: React.FC = () => {
   const handleMouseUp = () => { setDragging(null); setResizing(null); };
 
   const handleDoubleClick = (elementId: string) => {
+    if (previewing) return;
     const element = elements.find(el => el.id === elementId);
     if (element?.type === 'text') {
       setEditing(elementId);
@@ -292,6 +350,42 @@ const EditorPage: React.FC = () => {
     setContextMenu(null);
   };
 
+  // PREVIEW PLAYER
+  const startPreview = () => {
+    setPreviewing(true);
+    setPreviewSlide(0);
+    playSlide(0);
+  };
+
+  const stopPreview = () => {
+    setPreviewing(false);
+    if (previewIntervalRef.current) clearTimeout(previewIntervalRef.current);
+    window.speechSynthesis.cancel();
+  };
+
+  const playSlide = (index: number) => {
+    if (index >= slides.length) {
+      stopPreview();
+      return;
+    }
+    
+    const slide = slides[index];
+    
+    // Play audio if available
+    if (slide.audioText) {
+      const utterance = new SpeechSynthesisUtterance(slide.audioText);
+      utterance.rate = 0.9;
+      utterance.pitch = 1;
+      window.speechSynthesis.speak(utterance);
+    }
+    
+    // Auto-advance to next slide
+    previewIntervalRef.current = setTimeout(() => {
+      setPreviewSlide(index + 1);
+      playSlide(index + 1);
+    }, slide.duration * 1000);
+  };
+
   const totalDuration = slides.reduce((sum, slide) => sum + slide.duration, 0);
   const applyTemplate = (template: any) => {
     setSlides(prev => prev.map((slide, idx) => idx === currentSlideIndex ? { ...slide, background: template.gradient, backgroundType: 'gradient' } : slide));
@@ -305,38 +399,29 @@ const EditorPage: React.FC = () => {
     setAudioGenerating(true);
     
     try {
-      // REAL TTS API CALL
-      const response = await fetch('https://api.streamelements.com/kappa/v2/speech', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voice: 'Brian', text: combinedText })
-      });
-      
-      if (!response.ok) throw new Error('TTS API failed');
-      
-      const audioBlob = await response.blob();
-      const audioUrl = URL.createObjectURL(audioBlob);
-      const estimatedDuration = Math.max(3, Math.ceil(combinedText.length / 15));
-      
-      setSlides(prev => prev.map((slide, idx) =>
-        idx === currentSlideIndex ? { ...slide, audioUrl, duration: estimatedDuration } : slide
-      ));
-      
-      alert('Audio generated successfully! ✅');
-    } catch (error) {
-      console.error('Audio generation failed:', error);
-      alert('Audio generation failed. Using fallback method.');
-      
-      // Fallback: Use browser SpeechSynthesis
+      // Use browser Speech Synthesis
       const utterance = new SpeechSynthesisUtterance(combinedText);
       utterance.rate = 0.9;
       utterance.pitch = 1;
+      
+      // Play preview
       window.speechSynthesis.speak(utterance);
       
       const estimatedDuration = Math.max(3, Math.ceil(combinedText.length / 15));
+      
       setSlides(prev => prev.map((slide, idx) =>
-        idx === currentSlideIndex ? { ...slide, audioUrl: 'speech-synthesis', duration: estimatedDuration } : slide
+        idx === currentSlideIndex ? { 
+          ...slide, 
+          audioUrl: 'browser-speech', 
+          audioText: combinedText,
+          duration: estimatedDuration 
+        } : slide
       ));
+      
+      alert('Audio generated successfully! ✅\nClick the Play button in the toolbar to preview.');
+    } catch (error) {
+      console.error('Audio generation failed:', error);
+      alert('Audio generation failed.');
     } finally {
       setAudioGenerating(false);
     }
@@ -399,7 +484,12 @@ const EditorPage: React.FC = () => {
       <header className="bg-gray-800 border-b border-gray-700 px-4 py-2.5 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-4">
           <button onClick={() => navigate('/dashboard')} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm flex items-center gap-1">← Back</button>
-          <h1 className="text-base font-bold">SlideCast V2</h1>
+          <input
+            type="text"
+            value={projectName}
+            onChange={(e) => setProjectName(e.target.value)}
+            className="bg-gray-700 px-3 py-1.5 rounded text-sm font-bold border border-transparent hover:border-purple-500 focus:border-purple-500 outline-none"
+          />
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => addElement('text')} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-sm font-semibold flex items-center gap-1.5">
@@ -417,6 +507,11 @@ const EditorPage: React.FC = () => {
           <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
         </div>
         <div className="flex items-center gap-2">
+          {previewing ? (
+            <button onClick={stopPreview} className="px-4 py-1.5 bg-red-600 hover:bg-red-700 rounded text-sm font-semibold">⏹ Stop</button>
+          ) : (
+            <button onClick={startPreview} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-sm font-semibold">▶️ Play</button>
+          )}
           <button onClick={undo} disabled={historyIndex < 0} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs disabled:opacity-30">↶</button>
           <button onClick={redo} disabled={historyIndex >= history.length - 1} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs disabled:opacity-30">↷</button>
           <button onClick={() => setShowGrid(!showGrid)} className={`px-3 py-1.5 rounded text-xs ${showGrid ? 'bg-purple-600' : 'bg-gray-700'}`}>#</button>
@@ -437,9 +532,9 @@ const EditorPage: React.FC = () => {
                 </div>
               ) : (
                 elements.map((element, idx) => (
-                  <div key={element.id} onClick={() => setSelectedElements([element.id])}
+                  <div key={element.id} onClick={() => !previewing && setSelectedElements([element.id])}
                     className={`px-2 py-1.5 rounded cursor-pointer text-xs transition-all ${
-                      selectedElements.includes(element.id) ? 'bg-purple-600 text-white' : 'bg-gray-700 hover:bg-gray-600'
+                      selectedElements.includes(element.id) && !previewing ? 'bg-purple-600 text-white' : 'bg-gray-700 hover:bg-gray-600'
                     }`}>
                     <div className="flex items-center gap-1 truncate">
                       {element.type === 'text' && '📝'} {element.type === 'shape' && '▢'} {element.type === 'image' && '🖼'}
@@ -453,34 +548,39 @@ const EditorPage: React.FC = () => {
         </aside>
 
         <main className="flex-1 flex items-center justify-center bg-gray-900 p-4" onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}>
+          {previewing && (
+            <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 bg-purple-600 px-6 py-2 rounded-full text-white font-semibold shadow-lg">
+              Preview Mode - Slide {previewSlide + 1}/{slides.length}
+            </div>
+          )}
           <div ref={canvasRef} className="rounded-lg shadow-2xl relative overflow-hidden"
             style={{
               width: `${1920 * canvasScale}px`, height: `${1080 * canvasScale}px`, ...getBackgroundStyle(),
-              backgroundImage: showGrid ? `linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px), ${getBackgroundStyle().backgroundImage || getBackgroundStyle().background}` : getBackgroundStyle().backgroundImage,
-              backgroundSize: showGrid ? `${24 * canvasScale}px ${24 * canvasScale}px, ${24 * canvasScale}px ${24 * canvasScale}px, cover` : 'cover'
-            }} onClick={() => { setSelectedElements([]); saveEdit(); }}>
+              backgroundImage: showGrid && !previewing ? `linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px), ${getBackgroundStyle().backgroundImage || getBackgroundStyle().background}` : getBackgroundStyle().backgroundImage,
+              backgroundSize: showGrid && !previewing ? `${24 * canvasScale}px ${24 * canvasScale}px, ${24 * canvasScale}px ${24 * canvasScale}px, cover` : 'cover'
+            }} onClick={() => { !previewing && setSelectedElements([]); saveEdit(); }}>
             {elements.map((element) => (
               <div key={element.id}
                 className={`absolute select-none ${getAnimationClass(element.animation)} ${
-                  selectedElements.includes(element.id) ? 'ring-4 ring-blue-500' : 'hover:ring-2 hover:ring-blue-300'
+                  selectedElements.includes(element.id) && !previewing ? 'ring-4 ring-blue-500' : !previewing ? 'hover:ring-2 hover:ring-blue-300' : ''
                 }`}
                 style={{
                   left: `${element.x * canvasScale}px`, top: `${element.y * canvasScale}px`,
                   width: `${element.width * canvasScale}px`, height: `${element.height * canvasScale}px`,
                   opacity: (element.opacity || 100) / 100,
                   transform: `rotate(${element.rotation || 0}deg)`,
-                  cursor: editing === element.id ? 'text' : 'move',
+                  cursor: previewing ? 'default' : (editing === element.id ? 'text' : 'move'),
                   ...getShadowStyle(element.shadow)
                 }}
                 onMouseDown={(e) => !editing && handleMouseDown(e, element.id)}
-                onClick={(e) => { e.stopPropagation(); setSelectedElements([element.id]); }}
+                onClick={(e) => { e.stopPropagation(); !previewing && setSelectedElements([element.id]); }}
                 onDoubleClick={() => handleDoubleClick(element.id)}>
                 {element.type === 'text' && (
-                  editing === element.id ? (
+                  editing === element.id && !previewing ? (
                     <input ref={editInputRef} type="text" value={editText}
                       onChange={(e) => setEditText(e.target.value)}
                       onBlur={saveEdit}
-                      onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') { setEditing(null); } }}
                       className="w-full h-full bg-transparent border-2 border-blue-500 px-2 text-center"
                       style={{
                         color: element.color, fontSize: `${(element.fontSize || 32) * canvasScale}px`,
@@ -510,7 +610,7 @@ const EditorPage: React.FC = () => {
                     filter: element.blur ? `blur(${element.blur}px)` : 'none'
                   }} />
                 )}
-                {selectedElements.includes(element.id) && !editing && (
+                {selectedElements.includes(element.id) && !editing && !previewing && (
                   <>
                     <div className="resize-handle nw" onMouseDown={(e) => handleResizeStart(e, element.id, 'nw')} />
                     <div className="resize-handle ne" onMouseDown={(e) => handleResizeStart(e, element.id, 'ne')} />
@@ -520,7 +620,7 @@ const EditorPage: React.FC = () => {
                 )}
               </div>
             ))}
-            {elements.length === 0 && (
+            {elements.length === 0 && !previewing && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="text-center bg-white/90 backdrop-blur px-8 py-6 rounded-2xl">
                   <p className="text-5xl mb-3">👆</p>
@@ -564,11 +664,16 @@ const EditorPage: React.FC = () => {
                     {audioGenerating ? '⏳ Generating...' : '🎙️ Generate Audio'}
                   </button>
                 </div>
-                {currentSlide.audioUrl && currentSlide.audioUrl !== 'speech-synthesis' && (
+                {currentSlide.audioText && (
                   <div className="p-3 bg-green-900/20 border border-green-700 rounded">
                     <p className="text-xs text-green-300 mb-2">✅ Audio Ready</p>
-                    <audio src={currentSlide.audioUrl} controls className="w-full" />
-                    <a href={currentSlide.audioUrl} download className="block mt-2 text-xs text-blue-400 hover:underline">📥 Download Audio</a>
+                    <p className="text-xs text-gray-400 mb-2">Text: {currentSlide.audioText.substring(0, 50)}...</p>
+                    <p className="text-xs text-gray-400">Duration: {currentSlide.duration}s</p>
+                    <button onClick={() => {
+                      const utterance = new SpeechSynthesisUtterance(currentSlide.audioText);
+                      utterance.rate = 0.9;
+                      window.speechSynthesis.speak(utterance);
+                    }} className="w-full mt-2 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs">▶️ Play Audio</button>
                   </div>
                 )}
                 <AudioPanel slideId={currentSlide.id} audioUrl={currentSlide.audioUrl}
@@ -641,13 +746,16 @@ const EditorPage: React.FC = () => {
           <div className="flex gap-2 overflow-x-auto pb-1">
             {slides.map((slide, index) => (
               <div key={slide.id}
-                onClick={() => setCurrentSlideIndex(index)}
-                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, slideIndex: index }); }}
-                className={`flex-shrink-0 cursor-pointer transition-all ${
-                  currentSlideIndex === index ? 'ring-2 ring-purple-500' : 'opacity-60 hover:opacity-100'
+                onClick={() => !previewing && setCurrentSlideIndex(index)}
+                onContextMenu={(e) => { e.preventDefault(); !previewing && setContextMenu({ x: e.clientX, y: e.clientY, slideIndex: index }); }}
+                className={`flex-shrink-0 cursor-pointer transition-all relative ${
+                  (previewing ? previewSlide : currentSlideIndex) === index ? 'ring-2 ring-purple-500' : 'opacity-60 hover:opacity-100'
                 }`} style={{ width: '80px' }}>
                 <div className="aspect-video rounded flex items-center justify-center text-xs font-bold shadow"
-                  style={{ background: slide.background }}>{slide.elements.length || '+'}</div>
+                  style={{ background: slide.background }}>
+                  {slide.elements.length || '+'}
+                  {slide.audioText && <span className="absolute top-0 right-0 text-xs">🎤</span>}
+                </div>
                 <div className="text-xs text-gray-400 text-center mt-0.5">{index + 1}</div>
               </div>
             ))}
@@ -664,7 +772,7 @@ const EditorPage: React.FC = () => {
       )}
 
       <TemplateGallery isOpen={showTemplates} onClose={() => setShowTemplates(false)} onApply={applyTemplate} />
-      <ExportModal isOpen={showExport} onClose={() => setShowExport(false)} slides={slides} projectName="Presentation" />
+      <ExportModal isOpen={showExport} onClose={() => setShowExport(false)} slides={slides} projectName={projectName} />
     </div>
   );
 };
