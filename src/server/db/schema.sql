@@ -6,8 +6,14 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Drop existing tables (in correct order due to foreign keys)
+DROP TABLE IF EXISTS video_export_jobs CASCADE;
+DROP TABLE IF EXISTS slides CASCADE;
+DROP TABLE IF EXISTS projects CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+
 -- Users table
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   email VARCHAR(255) UNIQUE NOT NULL,
   username VARCHAR(100) UNIQUE NOT NULL,
@@ -17,7 +23,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- Projects table
-CREATE TABLE IF NOT EXISTS projects (
+CREATE TABLE projects (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
@@ -28,7 +34,7 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 
 -- Slides table
-CREATE TABLE IF NOT EXISTS slides (
+CREATE TABLE slides (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   order_index INTEGER NOT NULL,
@@ -46,7 +52,7 @@ CREATE TABLE IF NOT EXISTS slides (
 );
 
 -- Video export jobs table
-CREATE TABLE IF NOT EXISTS video_export_jobs (
+CREATE TABLE video_export_jobs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -60,11 +66,11 @@ CREATE TABLE IF NOT EXISTS video_export_jobs (
 );
 
 -- Indexes for performance
-CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
-CREATE INDEX IF NOT EXISTS idx_slides_project_id ON slides(project_id);
-CREATE INDEX IF NOT EXISTS idx_slides_order ON slides(project_id, order_index);
-CREATE INDEX IF NOT EXISTS idx_export_jobs_user_id ON video_export_jobs(user_id);
-CREATE INDEX IF NOT EXISTS idx_export_jobs_status ON video_export_jobs(status);
+CREATE INDEX idx_projects_user_id ON projects(user_id);
+CREATE INDEX idx_slides_project_id ON slides(project_id);
+CREATE INDEX idx_slides_order ON slides(project_id, order_index);
+CREATE INDEX idx_export_jobs_user_id ON video_export_jobs(user_id);
+CREATE INDEX idx_export_jobs_status ON video_export_jobs(status);
 
 -- Updated_at trigger function
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -84,9 +90,3 @@ CREATE TRIGGER update_projects_updated_at BEFORE UPDATE ON projects
 
 CREATE TRIGGER update_slides_updated_at BEFORE UPDATE ON slides
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
--- Sample data (optional - for development)
--- Uncomment to insert test data
-
--- INSERT INTO users (email, username, password_hash) VALUES
---   ('test@slidecast.com', 'testuser', '$2b$10$YourHashedPasswordHere');
