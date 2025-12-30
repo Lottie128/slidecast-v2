@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
@@ -41,13 +41,19 @@ const EditorPage = () => {
   const [content, setContent] = useState('');
   const [speakerNotes, setSpeakerNotes] = useState('');
   const [bgValue, setBgValue] = useState('linear-gradient(135deg, #667eea 0%, #764ba2 100%)');
+  
+  // Track if we're loading a slide to prevent auto-save trigger
+  const isLoadingSlide = useRef(false);
 
   useEffect(() => {
     fetchProject();
     fetchSlides();
   }, [projectId]);
 
+  // Load slide data when switching slides
   useEffect(() => {
+    isLoadingSlide.current = true; // Set flag to prevent auto-save
+    
     if (slides[currentSlide]) {
       const slide = slides[currentSlide];
       setTitle(slide.title);
@@ -60,11 +66,16 @@ const EditorPage = () => {
       setSpeakerNotes('');
       setBgValue('linear-gradient(135deg, #667eea 0%, #764ba2 100%)');
     }
+    
+    // Allow auto-save after a short delay
+    setTimeout(() => {
+      isLoadingSlide.current = false;
+    }, 100);
   }, [currentSlide, slides]);
 
-  // Auto-save with debounce
+  // Auto-save with debounce (only when user edits, not when loading)
   useEffect(() => {
-    if (!slides[currentSlide]) return;
+    if (!slides[currentSlide] || isLoadingSlide.current) return;
     
     const timeoutId = setTimeout(() => {
       saveSlide();
@@ -140,6 +151,11 @@ const EditorPage = () => {
 
   const addSlide = async () => {
     try {
+      // Save current slide before adding new one
+      if (slides[currentSlide]) {
+        await saveSlide();
+      }
+      
       const token = localStorage.getItem('accessToken');
       const response = await axios.post(
         `/api/slides`,
@@ -199,6 +215,14 @@ const EditorPage = () => {
     } finally {
       setGenerating(false);
     }
+  };
+
+  const handleSlideSwitch = async (index: number) => {
+    // Save current slide before switching
+    if (slides[currentSlide]) {
+      await saveSlide();
+    }
+    setCurrentSlide(index);
   };
 
   if (loading) {
@@ -266,7 +290,7 @@ const EditorPage = () => {
               {slides.map((slide, index) => (
                 <div
                   key={slide.id}
-                  onClick={() => setCurrentSlide(index)}
+                  onClick={() => handleSlideSwitch(index)}
                   className={`rounded-lg cursor-pointer transition-all overflow-hidden ${
                     currentSlide === index
                       ? 'ring-2 ring-purple-500 shadow-lg shadow-purple-500/50'
