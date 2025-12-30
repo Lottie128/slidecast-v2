@@ -2,16 +2,51 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
+interface SlideElement {
+  id: string;
+  type: 'text' | 'image' | 'shape';
+  x: number;      // 0-100 percentage
+  y: number;      // 0-100 percentage
+  width: number;  // 0-100 percentage
+  height: number; // 0-100 percentage
+  rotation?: number;
+  zIndex?: number;
+  
+  // For text elements
+  textContent?: string;
+  fontSize?: number;
+  color?: string;
+  fontWeight?: string;
+  fontFamily?: string;
+  
+  // For image elements
+  imageUrl?: string;
+  imagePath?: string; // for Supabase Storage
+  
+  // For shapes
+  shapeType?: 'rectangle' | 'circle' | 'triangle';
+  backgroundColor?: string;
+  
+  // Animation
+  animation?: {
+    type: 'fade-in' | 'slide-in' | 'scale-in' | 'none';
+    startMs: number;
+    durationMs: number;
+  };
+}
+
 interface Slide {
   id: string;
   order_index: number;
   title: string;
   content: string;
   background_gradient: string;
+  background_image_url?: string;
   audio_url?: string;
   audio_duration?: number | string;
   animation_type?: string;
-  elements?: any[]; // For future image/element support
+  is_cover?: boolean;
+  elements?: SlideElement[];
 }
 
 interface Project {
@@ -40,11 +75,10 @@ const animationTypes = [
   { value: 'none', label: 'None' },
   { value: 'fade', label: 'Fade In' },
   { value: 'slide', label: 'Slide Up' },
-  { value: 'typing', label: 'Typing Effect (Synced)' },
+  { value: 'typing', label: 'Typing Effect (Synced with LEAD)' },
   { value: 'scale', label: 'Scale Up' },
 ];
 
-// Default Edge TTS voices (fallback)
 const DEFAULT_VOICES: Voice[] = [
   { id: 'en-US-AriaNeural', name: 'Aria (US Female)', gender: 'Female', locale: 'en-US' },
   { id: 'en-US-GuyNeural', name: 'Guy (US Male)', gender: 'Male', locale: 'en-US' },
@@ -54,7 +88,6 @@ const DEFAULT_VOICES: Voice[] = [
   { id: 'en-IN-NeerjaNeural', name: 'Neerja (IN Female)', gender: 'Female', locale: 'en-IN' },
 ];
 
-// Helper to format duration
 const formatDuration = (duration?: number | string): string => {
   if (!duration) return 'Audio Ready';
   const num = typeof duration === 'string' ? parseFloat(duration) : duration;
@@ -74,8 +107,9 @@ const EditorPage = () => {
   const [voices, setVoices] = useState<Voice[]>(DEFAULT_VOICES);
   const [selectedVoice, setSelectedVoice] = useState<string>('en-US-AriaNeural');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isCover, setIsCover] = useState(false);
   
-  // For synchronized typing animation
+  // For synchronized typing animation with LEAD TIME
   const [displayedTitle, setDisplayedTitle] = useState('');
   const [displayedContent, setDisplayedContent] = useState('');
   const [animationType, setAnimationType] = useState<string>('fade');
@@ -83,10 +117,17 @@ const EditorPage = () => {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [bgValue, setBgValue] = useState('linear-gradient(135deg, #667eea 0%, #764ba2 100%)');
+  const [bgImageUrl, setBgImageUrl] = useState('');
+  const [elements, setElements] = useState<SlideElement[]>([]);
+  const [selectedElement, setSelectedElement] = useState<string | null>(null);
   
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const typingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+
+  // LEAD TIME CONFIG: Typing starts 600ms before audio
+  const TYPING_LEAD_TIME_MS = 600;
 
   useEffect(() => {
     fetchProject();
@@ -100,10 +141,13 @@ const EditorPage = () => {
       setTitle(slide.title);
       setContent(slide.content);
       setBgValue(slide.background_gradient);
+      setBgImageUrl(slide.background_image_url || '');
       setAnimationType(slide.animation_type || 'fade');
+      setIsCover(slide.is_cover || false);
+      setElements(slide.elements || []);
+      setSelectedElement(null);
       setIsPlaying(false);
       
-      // Reset displayed text
       if (slide.animation_type === 'typing') {
         setDisplayedTitle('');
         setDisplayedContent('');
@@ -112,12 +156,10 @@ const EditorPage = () => {
         setDisplayedContent(slide.content);
       }
       
-      // Clear any ongoing typing animation
       if (typingIntervalRef.current) {
         clearInterval(typingIntervalRef.current);
       }
       
-      // Update audio source when slide changes
       if (audioRef.current && slide.audio_url) {
         audioRef.current.src = slide.audio_url;
         audioRef.current.load();
@@ -125,7 +167,6 @@ const EditorPage = () => {
     }
   }, [currentSlide, slides]);
 
-  // Auto-save when title, content, background, or animation changes
   useEffect(() => {
     if (slides[currentSlide]) {
       if (autoSaveTimeoutRef.current) {
@@ -142,7 +183,7 @@ const EditorPage = () => {
         clearTimeout(autoSaveTimeoutRef.current);
       }
     };
-  }, [title, content, bgValue, animationType]);
+  }, [title, content, bgValue, bgImageUrl, animationType, isCover, elements]);
 
   const fetchProject = async () => {
     try {
@@ -193,7 +234,10 @@ const EditorPage = () => {
         title,
         content,
         backgroundGradient: bgValue,
+        backgroundImageUrl: bgImageUrl,
         animationType,
+        isCover,
+        elements,
       };
 
       await axios.patch(
@@ -206,7 +250,16 @@ const EditorPage = () => {
       
       setSlides(prev => prev.map((s, i) => 
         i === currentSlide 
-          ? { ...s, title, content, background_gradient: bgValue, animation_type: animationType }
+          ? { 
+              ...s, 
+              title, 
+              content, 
+              background_gradient: bgValue,
+              background_image_url: bgImageUrl,
+              animation_type: animationType,
+              is_cover: isCover,
+              elements,
+            }
           : s
       ));
     } catch (error) {
@@ -237,6 +290,7 @@ const EditorPage = () => {
           background_type: 'gradient',
           background_value: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
           animation_type: 'fade',
+          is_cover: false,
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -246,6 +300,30 @@ const EditorPage = () => {
     } catch (error) {
       console.error('Error adding slide:', error);
       alert('Failed to add slide');
+    }
+  };
+
+  const addCoverSlide = async () => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      await axios.post(
+        `/api/projects/${projectId}/slides`,
+        {
+          title: 'Project Title',
+          content: 'Your presentation subtitle',
+          background_type: 'gradient',
+          background_value: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          animation_type: 'fade',
+          is_cover: true,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      await fetchSlides();
+      setCurrentSlide(slides.length);
+    } catch (error) {
+      console.error('Error adding cover slide:', error);
+      alert('Failed to add cover slide');
     }
   };
 
@@ -313,7 +391,7 @@ const EditorPage = () => {
     }
   };
 
-  // Synchronized typing animation
+  // TYPING ANIMATION WITH LEAD TIME
   const startTypingAnimation = () => {
     if (!audioRef.current) return;
     
@@ -328,8 +406,9 @@ const EditorPage = () => {
     const titleLength = title.length;
     const totalLength = fullText.length;
     
-    // Calculate typing speed based on audio duration
-    const charsPerSecond = totalLength / audioDuration;
+    // Calculate typing speed based on audio duration MINUS lead time
+    const effectiveDuration = Math.max(audioDuration - (TYPING_LEAD_TIME_MS / 1000), audioDuration * 0.7);
+    const charsPerSecond = totalLength / effectiveDuration;
     const msPerChar = 1000 / charsPerSecond;
     
     let currentIndex = 0;
@@ -339,17 +418,14 @@ const EditorPage = () => {
     typingIntervalRef.current = setInterval(() => {
       if (currentIndex <= totalLength) {
         if (currentIndex <= titleLength) {
-          // Typing title
           setDisplayedTitle(title.substring(0, currentIndex));
         } else {
-          // Title complete, typing content
           setDisplayedTitle(title);
           const contentIndex = currentIndex - titleLength - 2; // -2 for ". "
           setDisplayedContent(content.substring(0, contentIndex));
         }
         currentIndex++;
       } else {
-        // Animation complete
         if (typingIntervalRef.current) {
           clearInterval(typingIntervalRef.current);
         }
@@ -367,16 +443,23 @@ const EditorPage = () => {
         clearInterval(typingIntervalRef.current);
       }
     } else {
-      // Start audio and sync animations
       if (animationType === 'typing') {
+        // Start typing LEAD_TIME_MS BEFORE playing audio
         startTypingAnimation();
+        
+        // Schedule audio play after lead time
+        setTimeout(() => {
+          if (audioRef.current) {
+            audioRef.current.play();
+            setIsPlaying(true);
+          }
+        }, TYPING_LEAD_TIME_MS);
       } else {
-        // For non-typing animations, show full text immediately with animation class
         setDisplayedTitle(title);
         setDisplayedContent(content);
+        audioRef.current.play();
+        setIsPlaying(true);
       }
-      audioRef.current.play();
-      setIsPlaying(true);
     }
   };
 
@@ -384,6 +467,95 @@ const EditorPage = () => {
     event.stopPropagation();
     const audio = new Audio(audioUrl);
     audio.play();
+  };
+
+  // Element Management
+  const addImageElement = async () => {
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    fileInput.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        // For MVP: use data URL (ephemeral in-browser)
+        // In production: upload to Supabase Storage
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const imageUrl = event.target?.result as string;
+          const newElement: SlideElement = {
+            id: `elem-${Date.now()}`,
+            type: 'image',
+            x: 50,
+            y: 50,
+            width: 30,
+            height: 30,
+            zIndex: 1,
+            imageUrl,
+            animation: { type: 'fade-in', startMs: 0, durationMs: 500 },
+          };
+          setElements([...elements, newElement]);
+          setSelectedElement(newElement.id);
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+    fileInput.click();
+  };
+
+  const addTextElement = () => {
+    const newElement: SlideElement = {
+      id: `elem-${Date.now()}`,
+      type: 'text',
+      x: 50,
+      y: 50,
+      width: 40,
+      height: 10,
+      zIndex: 1,
+      textContent: 'New Text',
+      fontSize: 24,
+      color: '#ffffff',
+      fontWeight: 'bold',
+      fontFamily: 'Arial',
+      animation: { type: 'fade-in', startMs: 0, durationMs: 500 },
+    };
+    setElements([...elements, newElement]);
+    setSelectedElement(newElement.id);
+  };
+
+  const addBackgroundImage = async () => {
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    fileInput.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          setBgImageUrl(event.target?.result as string);
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+    fileInput.click();
+  };
+
+  const updateElement = (elementId: string, updates: Partial<SlideElement>) => {
+    setElements(elements.map(el => el.id === elementId ? { ...el, ...updates } : el));
+  };
+
+  const deleteElement = (elementId: string) => {
+    setElements(elements.filter(el => el.id !== elementId));
+    setSelectedElement(null);
+  };
+
+  const getAnimationClass = () => {
+    if (!isPlaying || animationType === 'typing') return '';
+    switch (animationType) {
+      case 'fade': return 'animate-fadeIn';
+      case 'slide': return 'animate-slideUp';
+      case 'scale': return 'animate-scaleUp';
+      default: return '';
+    }
   };
 
   if (loading) {
@@ -398,17 +570,6 @@ const EditorPage = () => {
   }
 
   const currentSlideData = slides[currentSlide];
-
-  // Get animation CSS class for non-typing animations
-  const getAnimationClass = () => {
-    if (!isPlaying || animationType === 'typing') return '';
-    switch (animationType) {
-      case 'fade': return 'animate-fadeIn';
-      case 'slide': return 'animate-slideUp';
-      case 'scale': return 'animate-scaleUp';
-      default: return '';
-    }
-  };
 
   return (
     <div className="h-screen bg-gray-900 flex flex-col">
@@ -450,14 +611,20 @@ const EditorPage = () => {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Slide List (Left Sidebar) */}
+        {/* Slide List (Left) */}
         <div className="w-64 bg-gray-800 border-r border-gray-700 overflow-y-auto">
           <div className="p-4">
             <button
               onClick={addSlide}
-              className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors mb-4"
+              className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors mb-2"
             >
               ➕ Add Slide
+            </button>
+            <button
+              onClick={addCoverSlide}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors mb-4"
+            >
+              📖 Cover Slide
             </button>
             
             <div className="space-y-2">
@@ -472,13 +639,12 @@ const EditorPage = () => {
                   }`}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-bold text-white">#{index + 1}</span>
+                    <span className="text-sm font-bold text-white">#{index + 1} {slide.is_cover ? '📖' : ''}</span>
                     <div className="flex items-center gap-2">
                       {slide.audio_url && (
                         <button
                           onClick={(e) => playSlideAudio(slide.audio_url!, e)}
                           className="bg-green-500 hover:bg-green-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px]"
-                          title="Play audio"
                         >
                           ▶
                         </button>
@@ -486,7 +652,6 @@ const EditorPage = () => {
                       <button
                         onClick={(e) => deleteSlide(slide.id, e)}
                         className="opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold"
-                        title="Delete slide"
                       >
                         ×
                       </button>
@@ -514,13 +679,75 @@ const EditorPage = () => {
         <div className="flex-1 bg-gray-900 p-8 overflow-auto">
           <div className="max-w-5xl mx-auto">
             <div
+              ref={canvasRef}
               className="w-full aspect-video rounded-2xl shadow-2xl flex flex-col justify-center px-16 py-12 relative overflow-hidden"
-              style={{ background: bgValue }}
+              style={{
+                background: bgImageUrl ? `url(${bgImageUrl}) center/cover` : bgValue,
+                backgroundColor: bgImageUrl ? undefined : undefined,
+              }}
             >
-              <h2 className={`text-5xl font-bold text-white mb-6 drop-shadow-lg ${getAnimationClass()}`}>
+              {/* Background Image Overlay */}
+              {bgImageUrl && (
+                <div className="absolute inset-0 bg-black/30" />
+              )}
+              
+              {/* Elements Layer */}
+              {elements.map(element => {
+                if (element.type === 'text') {
+                  return (
+                    <div
+                      key={element.id}
+                      onClick={() => setSelectedElement(element.id)}
+                      className={`absolute cursor-move transition-all ${
+                        selectedElement === element.id ? 'ring-2 ring-blue-400' : ''
+                      }`}
+                      style={{
+                        left: `${element.x}%`,
+                        top: `${element.y}%`,
+                        width: `${element.width}%`,
+                        height: `${element.height}%`,
+                        zIndex: element.zIndex || 1,
+                      }}
+                    >
+                      <p
+                        style={{
+                          fontSize: `${element.fontSize}px`,
+                          color: element.color,
+                          fontWeight: element.fontWeight as any,
+                          fontFamily: element.fontFamily,
+                        }}
+                      >
+                        {element.textContent}
+                      </p>
+                    </div>
+                  );
+                } else if (element.type === 'image' && element.imageUrl) {
+                  return (
+                    <img
+                      key={element.id}
+                      src={element.imageUrl}
+                      onClick={() => setSelectedElement(element.id)}
+                      className={`absolute cursor-move object-cover transition-all ${
+                        selectedElement === element.id ? 'ring-2 ring-blue-400' : ''
+                      }`}
+                      style={{
+                        left: `${element.x}%`,
+                        top: `${element.y}%`,
+                        width: `${element.width}%`,
+                        height: `${element.height}%`,
+                        zIndex: element.zIndex || 1,
+                      }}
+                    />
+                  );
+                }
+                return null;
+              })}
+              
+              {/* Text Content */}
+              <h2 className={`text-5xl font-bold text-white mb-6 drop-shadow-lg relative z-10 ${getAnimationClass()}`}>
                 {displayedTitle || title || 'Slide Title'}
               </h2>
-              <p className={`text-2xl text-white/90 leading-relaxed drop-shadow ${getAnimationClass()}`}>
+              <p className={`text-2xl text-white/90 leading-relaxed drop-shadow relative z-10 ${getAnimationClass()}`}>
                 {displayedContent || content || 'Slide content goes here'}
               </p>
             </div>
@@ -531,6 +758,119 @@ const EditorPage = () => {
         <div className="w-80 bg-gray-800 border-l border-gray-700 overflow-y-auto">
           <div className="p-6 space-y-6">
             <h3 className="text-lg font-bold text-white">Properties</h3>
+            
+            {/* Elements Control */}
+            <div className="bg-gray-700 rounded-lg p-4">
+              <h4 className="text-sm font-semibold text-gray-300 mb-3">Elements</h4>
+              <div className="space-y-2">
+                <button
+                  onClick={addImageElement}
+                  className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded transition-colors"
+                >
+                  🖼️ Add Image
+                </button>
+                <button
+                  onClick={addTextElement}
+                  className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded transition-colors"
+                >
+                  📝 Add Text
+                </button>
+                <button
+                  onClick={addBackgroundImage}
+                  className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded transition-colors"
+                >
+                  🎨 Background Image
+                </button>
+              </div>
+            </div>
+            
+            {/* Selected Element Properties */}
+            {selectedElement && elements.find(el => el.id === selectedElement) && (
+              <div className="bg-blue-900/30 border border-blue-500/50 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-blue-300 mb-3">Element Properties</h4>
+                {(() => {
+                  const element = elements.find(el => el.id === selectedElement)!;
+                  return (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs text-gray-400">Position X (%)</label>
+                        <input
+                          type="number"
+                          value={element.x}
+                          onChange={(e) => updateElement(element.id, { x: parseFloat(e.target.value) })}
+                          className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm"
+                          min="0"
+                          max="100"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400">Position Y (%)</label>
+                        <input
+                          type="number"
+                          value={element.y}
+                          onChange={(e) => updateElement(element.id, { y: parseFloat(e.target.value) })}
+                          className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm"
+                          min="0"
+                          max="100"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400">Width (%)</label>
+                        <input
+                          type="number"
+                          value={element.width}
+                          onChange={(e) => updateElement(element.id, { width: parseFloat(e.target.value) })}
+                          className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm"
+                          min="1"
+                          max="100"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400">Height (%)</label>
+                        <input
+                          type="number"
+                          value={element.height}
+                          onChange={(e) => updateElement(element.id, { height: parseFloat(e.target.value) })}
+                          className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm"
+                          min="1"
+                          max="100"
+                        />
+                      </div>
+                      {element.type === 'text' && (
+                        <>
+                          <div>
+                            <label className="text-xs text-gray-400">Font Size</label>
+                            <input
+                              type="number"
+                              value={element.fontSize}
+                              onChange={(e) => updateElement(element.id, { fontSize: parseFloat(e.target.value) })}
+                              className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm"
+                              min="8"
+                              max="96"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-400">Text</label>
+                            <input
+                              type="text"
+                              value={element.textContent}
+                              onChange={(e) => updateElement(element.id, { textContent: e.target.value })}
+                              className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm"
+                            />
+                          </div>
+                        </>
+                      )}
+                      <button
+                        onClick={() => deleteElement(element.id)}
+                        className="w-full py-2 bg-red-600/30 hover:bg-red-600/50 text-red-300 text-sm font-medium rounded transition-colors"
+                      >
+                        🗑️ Delete Element
+                      </button>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
             
             {/* Title */}
             <div>
@@ -590,9 +930,20 @@ const EditorPage = () => {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-gray-500 mt-2">
-                💡 Typing effect syncs character-by-character with audio
-              </p>
+              <p className="text-xs text-green-400 mt-2">✨ Typing starts 600ms AHEAD of audio</p>
+            </div>
+            
+            {/* Is Cover */}
+            <div>
+              <label className="flex items-center gap-2 text-sm font-semibold text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={isCover}
+                  onChange={(e) => setIsCover(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                Cover Slide
+              </label>
             </div>
             
             {/* Voice Selection */}
@@ -651,7 +1002,7 @@ const EditorPage = () => {
         </div>
       </div>
       
-      {/* Hidden Audio Element */}
+      {/* Hidden Audio */}
       <audio
         ref={audioRef}
         onEnded={() => {
@@ -659,7 +1010,6 @@ const EditorPage = () => {
           if (typingIntervalRef.current) {
             clearInterval(typingIntervalRef.current);
           }
-          // Show complete text when audio ends
           setDisplayedTitle(title);
           setDisplayedContent(content);
         }}
