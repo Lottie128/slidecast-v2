@@ -118,7 +118,7 @@ const EditorPage = () => {
       await axios.post(
         `/api/slides`,
         {
-          projectId: parseInt(projectId!),
+          projectId: projectId, // Keep as string UUID
           title: 'New Slide',
           content: 'Click to edit content',
           slide_number: slides.length + 1,
