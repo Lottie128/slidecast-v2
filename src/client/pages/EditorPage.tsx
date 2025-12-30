@@ -1,21 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
 interface Slide {
-  id: number;
-  slide_number: number;
+  id: string;
+  order_index: number;
   title: string;
   content: string;
-  speaker_notes?: string;
-  background_type: string;
-  background_value: string;
+  background_gradient: string;
   audio_url?: string;
 }
 
 interface Project {
-  id: number;
-  title: string;
+  id: string;
+  name: string;
   description: string;
 }
 
@@ -36,6 +34,8 @@ const EditorPage = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -51,11 +51,27 @@ const EditorPage = () => {
     if (slides[currentSlide]) {
       const slide = slides[currentSlide];
       setTitle(slide.title);
-      setContent(slide.content);
-      setSpeakerNotes(slide.speaker_notes || '');
-      setBgValue(slide.background_value);
+      setContent(slide.content || '');
+      setSpeakerNotes('');
+      setBgValue(slide.background_gradient);
+    } else {
+      setTitle('');
+      setContent('');
+      setSpeakerNotes('');
+      setBgValue('linear-gradient(135deg, #667eea 0%, #764ba2 100%)');
     }
   }, [currentSlide, slides]);
+
+  // Auto-save with debounce
+  useEffect(() => {
+    if (!slides[currentSlide]) return;
+    
+    const timeoutId = setTimeout(() => {
+      saveSlide();
+    }, 1000); // Auto-save 1 second after user stops typing
+
+    return () => clearTimeout(timeoutId);
+  }, [title, content, speakerNotes, bgValue]);
 
   const fetchProject = async () => {
     try {
@@ -86,42 +102,52 @@ const EditorPage = () => {
   };
 
   const saveSlide = async () => {
+    if (!slides[currentSlide]) return;
+    
     try {
+      setSaving(true);
       const token = localStorage.getItem('accessToken');
       const slideData = {
         title,
         content,
         speaker_notes: speakerNotes,
-        background_type: 'gradient',
         background_value: bgValue,
       };
 
-      if (slides[currentSlide]) {
-        await axios.patch(
-          `/api/slides/${slides[currentSlide].id}`,
-          slideData,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-      }
+      await axios.patch(
+        `/api/slides/${slides[currentSlide].id}`,
+        slideData,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       
-      fetchSlides();
-      alert('Slide saved!');
+      setLastSaved(new Date());
+      
+      // Update local slides array
+      const updatedSlides = [...slides];
+      updatedSlides[currentSlide] = {
+        ...updatedSlides[currentSlide],
+        title,
+        content,
+        background_gradient: bgValue,
+      };
+      setSlides(updatedSlides);
     } catch (error) {
       console.error('Error saving slide:', error);
-      alert('Failed to save slide');
+    } finally {
+      setSaving(false);
     }
   };
 
   const addSlide = async () => {
     try {
       const token = localStorage.getItem('accessToken');
-      await axios.post(
+      const response = await axios.post(
         `/api/slides`,
         {
-          projectId: projectId, // Keep as string UUID
+          projectId: projectId,
           title: 'New Slide',
           content: 'Click to edit content',
-          slide_number: slides.length + 1,
+          slide_number: slides.length,
           background_type: 'gradient',
           background_value: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         },
@@ -136,7 +162,7 @@ const EditorPage = () => {
     }
   };
 
-  const deleteSlide = async (slideId: number) => {
+  const deleteSlide = async (slideId: string) => {
     if (!confirm('Delete this slide?')) return;
     
     try {
@@ -155,7 +181,7 @@ const EditorPage = () => {
     }
   };
 
-  const generateAudio = async (slideId: number) => {
+  const generateAudio = async (slideId: string) => {
     setGenerating(true);
     try {
       const token = localStorage.getItem('accessToken');
@@ -200,17 +226,23 @@ const EditorPage = () => {
             </svg>
           </button>
           <div>
-            <h1 className="text-xl font-bold text-white">{project?.title}</h1>
-            <p className="text-sm text-gray-400">{slides.length} slides</p>
+            <h1 className="text-xl font-bold text-white">{project?.name}</h1>
+            <p className="text-sm text-gray-400">
+              {slides.length} slides
+              {saving && <span className="ml-2 text-yellow-400">• Saving...</span>}
+              {lastSaved && !saving && (
+                <span className="ml-2 text-green-400">• Saved {lastSaved.toLocaleTimeString()}</span>
+              )}
+            </p>
           </div>
         </div>
         
         <div className="flex gap-3">
           <button
-            onClick={saveSlide}
+            onClick={() => saveSlide()}
             className="px-5 py-2.5 bg-gray-700 hover:bg-gray-600 text-white font-medium rounded-lg transition-colors"
           >
-            💾 Save
+            💾 Save Now
           </button>
           <button className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-medium rounded-lg transition-all">
             🎬 Export Video
@@ -249,7 +281,7 @@ const EditorPage = () => {
                   </div>
                   <div
                     className="w-full h-16 rounded mb-2"
-                    style={{ background: slide.background_value }}
+                    style={{ background: slide.background_gradient }}
                   ></div>
                   <p className="text-xs text-gray-300 truncate">{slide.title}</p>
                 </div>
@@ -261,17 +293,31 @@ const EditorPage = () => {
         {/* Canvas (Center) */}
         <div className="flex-1 bg-gray-900 p-8 overflow-auto">
           <div className="max-w-5xl mx-auto">
-            <div
-              className="w-full aspect-video rounded-2xl shadow-2xl flex flex-col justify-center px-16 py-12"
-              style={{ background: bgValue }}
-            >
-              <h2 className="text-5xl font-bold text-white mb-6 drop-shadow-lg">
-                {title || 'Slide Title'}
-              </h2>
-              <p className="text-2xl text-white/90 leading-relaxed drop-shadow">
-                {content || 'Slide content goes here'}
-              </p>
-            </div>
+            {slides[currentSlide] ? (
+              <div
+                className="w-full aspect-video rounded-2xl shadow-2xl flex flex-col justify-center px-16 py-12"
+                style={{ background: bgValue }}
+              >
+                <h2 className="text-5xl font-bold text-white mb-6 drop-shadow-lg">
+                  {title || 'Slide Title'}
+                </h2>
+                <p className="text-2xl text-white/90 leading-relaxed drop-shadow">
+                  {content || 'Slide content goes here'}
+                </p>
+              </div>
+            ) : (
+              <div className="w-full aspect-video rounded-2xl bg-gray-800 flex items-center justify-center">
+                <div className="text-center">
+                  <p className="text-gray-500 text-xl mb-4">No slides yet</p>
+                  <button
+                    onClick={addSlide}
+                    className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors"
+                  >
+                    ➕ Create Your First Slide
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -280,82 +326,89 @@ const EditorPage = () => {
           <div className="p-6 space-y-6">
             <h3 className="text-lg font-bold text-white">Properties</h3>
             
-            {/* Title */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-300 mb-2">Title</label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
-                placeholder="Slide title"
-              />
-            </div>
-            
-            {/* Content */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-300 mb-2">Content</label>
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 resize-none"
-                rows={4}
-                placeholder="Slide content"
-              />
-            </div>
-            
-            {/* Background */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-300 mb-3">Background</label>
-              <div className="grid grid-cols-2 gap-2">
-                {gradientPresets.map((preset) => (
-                  <button
-                    key={preset.name}
-                    onClick={() => setBgValue(preset.value)}
-                    className={`h-16 rounded-lg border-2 transition-all ${
-                      bgValue === preset.value
-                        ? 'border-purple-500 ring-2 ring-purple-500/50'
-                        : 'border-gray-700 hover:border-gray-600'
-                    }`}
-                    style={{ background: preset.value }}
-                    title={preset.name}
+            {slides[currentSlide] ? (
+              <>
+                {/* Title */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-300 mb-2">Title</label>
+                  <input
+                    type="text"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
+                    placeholder="Slide title"
                   />
-                ))}
+                </div>
+                
+                {/* Content */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-300 mb-2">Content</label>
+                  <textarea
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 resize-none"
+                    rows={4}
+                    placeholder="Slide content"
+                  />
+                </div>
+                
+                {/* Background */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-300 mb-3">Background</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {gradientPresets.map((preset) => (
+                      <button
+                        key={preset.name}
+                        onClick={() => setBgValue(preset.value)}
+                        className={`h-16 rounded-lg border-2 transition-all ${
+                          bgValue === preset.value
+                            ? 'border-purple-500 ring-2 ring-purple-500/50'
+                            : 'border-gray-700 hover:border-gray-600'
+                        }`}
+                        style={{ background: preset.value }}
+                        title={preset.name}
+                      />
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Speaker Notes */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-300 mb-2">
+                    Speaker Notes (AI Voice)
+                  </label>
+                  <textarea
+                    value={speakerNotes}
+                    onChange={(e) => setSpeakerNotes(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 resize-none"
+                    rows={3}
+                    placeholder="What the AI should say..."
+                  />
+                </div>
+                
+                {/* Actions */}
+                <div className="pt-4 border-t border-gray-700 space-y-3">
+                  <button
+                    onClick={() => generateAudio(slides[currentSlide].id)}
+                    disabled={generating}
+                    className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {generating ? '⏳ Generating...' : '🎤 Generate Audio'}
+                  </button>
+                  
+                  <button
+                    onClick={() => deleteSlide(slides[currentSlide].id)}
+                    className="w-full py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 font-medium rounded-lg transition-colors"
+                  >
+                    🗑️ Delete Slide
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="text-center py-12">
+                <p className="text-gray-500">Select or create a slide to edit</p>
               </div>
-            </div>
-            
-            {/* Speaker Notes */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-300 mb-2">
-                Speaker Notes (AI Voice)
-              </label>
-              <textarea
-                value={speakerNotes}
-                onChange={(e) => setSpeakerNotes(e.target.value)}
-                className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 resize-none"
-                rows={3}
-                placeholder="What the AI should say..."
-              />
-            </div>
-            
-            {/* Actions */}
-            <div className="pt-4 border-t border-gray-700 space-y-3">
-              <button
-                onClick={() => slides[currentSlide] && generateAudio(slides[currentSlide].id)}
-                disabled={generating || !slides[currentSlide]}
-                className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {generating ? '⏳ Generating...' : '🎤 Generate Audio'}
-              </button>
-              
-              <button
-                onClick={() => slides[currentSlide] && deleteSlide(slides[currentSlide].id)}
-                disabled={!slides[currentSlide]}
-                className="w-full py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                🗑️ Delete Slide
-              </button>
-            </div>
+            )}
           </div>
         </div>
       </div>
