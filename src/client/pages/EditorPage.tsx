@@ -51,9 +51,6 @@ interface Slide {
   audio_duration?: number | string;
   is_cover?: boolean;
   elements?: SlideElement[];
-  title?: string;
-  content?: string;
-  animation_type?: string;
 }
 
 interface Project {
@@ -65,8 +62,6 @@ interface Project {
 interface Voice {
   id: string;
   name: string;
-  gender?: string;
-  locale?: string;
 }
 
 const gradientPresets = [
@@ -79,27 +74,15 @@ const gradientPresets = [
 ];
 
 const slideTemplates = [
-  {
-    name: 'Title Slide',
-    icon: '📖',
-    elements: [
-      { type: 'text', textType: 'title', textContent: 'Slide Title', x: 20, y: 35, width: 60, height: 15, fontSize: 56, color: '#ffffff', fontWeight: 'bold', zIndex: 1, readingOrder: 1 },
-      { type: 'text', textType: 'caption', textContent: 'Your subtitle here', x: 20, y: 52, width: 60, height: 8, fontSize: 24, color: '#e0e0e0', fontWeight: 'normal', zIndex: 1, readingOrder: 2 },
-    ],
-  },
-  {
-    name: 'Title + Body',
-    icon: '📝',
-    elements: [
-      { type: 'text', textType: 'title', textContent: 'Slide Title', x: 10, y: 10, width: 80, height: 12, fontSize: 48, color: '#ffffff', fontWeight: 'bold', zIndex: 1, readingOrder: 1 },
-      { type: 'text', textType: 'body', textContent: 'Your main content goes here', x: 10, y: 28, width: 80, height: 60, fontSize: 24, color: '#ffffff', fontWeight: 'normal', zIndex: 1, readingOrder: 2 },
-    ],
-  },
-  {
-    name: 'Blank Canvas',
-    icon: '🎨',
-    elements: [],
-  },
+  { name: 'Title Slide', icon: '📖', elements: [
+    { type: 'text', textType: 'title', textContent: 'Slide Title', x: 20, y: 35, width: 60, height: 15, fontSize: 56, color: '#ffffff', fontWeight: 'bold', zIndex: 1, readingOrder: 1 },
+    { type: 'text', textType: 'caption', textContent: 'Your subtitle here', x: 20, y: 52, width: 60, height: 8, fontSize: 24, color: '#e0e0e0', fontWeight: 'normal', zIndex: 1, readingOrder: 2 },
+  ]},
+  { name: 'Title + Body', icon: '📝', elements: [
+    { type: 'text', textType: 'title', textContent: 'Slide Title', x: 10, y: 10, width: 80, height: 12, fontSize: 48, color: '#ffffff', fontWeight: 'bold', zIndex: 1, readingOrder: 1 },
+    { type: 'text', textType: 'body', textContent: 'Your main content goes here', x: 10, y: 28, width: 80, height: 60, fontSize: 24, color: '#ffffff', fontWeight: 'normal', zIndex: 1, readingOrder: 2 },
+  ]},
+  { name: 'Blank Canvas', icon: '🎨', elements: [] },
 ];
 
 const textTypePresets = {
@@ -131,36 +114,39 @@ const formatDuration = (duration?: number | string): string => {
 };
 
 const cleanTextForTTS = (text: string): string => {
-  return text
-    .replace(/\n+/g, '. ')
-    .replace(/\s+/g, ' ')
-    .replace(/([.!?])\s*([.!?])/g, '$1 ')
-    .replace(/\s+([.!?,;:])/g, '$1')
-    .replace(/\.\s*\./g, '.')
-    .trim();
+  return text.replace(/\n+/g, '. ').replace(/\s+/g, ' ').replace(/([.!?])\s*([.!?])/g, '$1 ').replace(/\s+([.!?,;:])/g, '$1').replace(/\.\s*\./g, '.').trim();
 };
 
-// OPTIMIZED ELEMENT COMPONENT
+// ✅ OPTIMIZED CANVAS ELEMENT WITH OFFSET STATE
 const CanvasElement = memo(({ 
   element, 
   isSelected, 
   isEditing,
+  isDragging,
+  dragOffset,
   onMouseDown, 
   onDoubleClick,
-  onTextChange,
+  onTextBlur,
   onContextMenu,
   onResizeStart,
 }: { 
   element: SlideElement; 
   isSelected: boolean;
   isEditing: boolean;
+  isDragging: boolean;
+  dragOffset: { x: number; y: number } | null;
   onMouseDown: (e: React.MouseEvent) => void;
   onDoubleClick: () => void;
-  onTextChange: (text: string) => void;
+  onTextBlur: (text: string) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onResizeStart: (e: React.MouseEvent, corner: string) => void;
 }) => {
+  const [localText, setLocalText] = useState(element.textContent || '');
   const editableRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setLocalText(element.textContent || '');
+  }, [element.textContent]);
 
   useEffect(() => {
     if (isEditing && editableRef.current) {
@@ -174,20 +160,29 @@ const CanvasElement = memo(({
     }
   }, [isEditing]);
 
+  // ✅ Calculate display position with offset
+  const displayX = isDragging && dragOffset ? element.x + dragOffset.x : element.x;
+  const displayY = isDragging && dragOffset ? element.y + dragOffset.y : element.y;
+
   const commonStyle: React.CSSProperties = {
     position: 'absolute',
-    left: `${element.x}%`,
-    top: `${element.y}%`,
+    left: `${displayX}%`,
+    top: `${displayY}%`,
     width: `${element.width}%`,
     height: `${element.height}%`,
     zIndex: element.zIndex || 1,
-    cursor: 'grab',
+    cursor: isDragging ? 'grabbing' : (isEditing ? 'text' : 'grab'),
     userSelect: isEditing ? 'text' : 'none',
+    transition: isDragging ? 'none' : 'box-shadow 0.2s',
+    pointerEvents: 'auto',
+    // ✅ GPU acceleration
+    transform: 'translateZ(0)',
+    willChange: isDragging ? 'transform' : 'auto',
   };
 
   const renderResizeHandles = () => {
     if (!isSelected || isEditing) return null;
-    const handleClass = "absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-sm hover:scale-150 transition-transform cursor-pointer";
+    const handleClass = "absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-sm hover:scale-150 transition-transform cursor-pointer z-10";
     return (
       <>
         <div className={`${handleClass} -top-1.5 -left-1.5 cursor-nw-resize`} onMouseDown={(e) => { e.stopPropagation(); onResizeStart(e, 'nw'); }} />
@@ -205,24 +200,19 @@ const CanvasElement = memo(({
         onMouseDown={onMouseDown}
         onDoubleClick={onDoubleClick}
         onContextMenu={onContextMenu}
-        className={`absolute transition-shadow ${isSelected ? 'ring-2 ring-blue-500 shadow-lg' : 'hover:ring-1 hover:ring-blue-300/50'}`}
+        className={`absolute ${isSelected ? 'ring-2 ring-blue-500 shadow-lg' : 'hover:ring-1 hover:ring-blue-300/50'}`}
         style={commonStyle}
       >
-        <div className="absolute -top-6 left-0 bg-blue-500 text-white text-xs px-2 py-0.5 rounded font-bold z-10">
-          {element.readingOrder}
-        </div>
+        <div className="absolute -top-6 left-0 bg-blue-500 text-white text-xs px-2 py-0.5 rounded font-bold z-10">{element.readingOrder}</div>
         <div
           ref={editableRef}
           contentEditable={isEditing}
           suppressContentEditableWarning
-          onBlur={(e) => onTextChange(e.currentTarget.textContent || '')}
+          onInput={(e) => setLocalText(e.currentTarget.textContent || '')}
+          onBlur={() => onTextBlur(localText)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              e.currentTarget.blur();
-            } else if (e.key === 'Escape') {
-              e.currentTarget.blur();
-            }
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.currentTarget.blur(); }
+            else if (e.key === 'Escape') { e.currentTarget.blur(); }
           }}
           className="w-full h-full drop-shadow-lg outline-none"
           style={{
@@ -234,9 +224,7 @@ const CanvasElement = memo(({
             wordBreak: 'break-word',
             pointerEvents: isEditing ? 'auto' : 'none',
           }}
-        >
-          {element.textContent}
-        </div>
+        >{localText}</div>
         {renderResizeHandles()}
       </div>
     );
@@ -244,20 +232,10 @@ const CanvasElement = memo(({
 
   if (element.type === 'image' && element.imageUrl) {
     return (
-      <div
-        id={`element-${element.id}`}
-        onMouseDown={onMouseDown}
-        onDoubleClick={onDoubleClick}
-        onContextMenu={onContextMenu}
-        className={`absolute ${isSelected ? 'ring-4 ring-blue-500 shadow-xl' : 'hover:ring-2 hover:ring-blue-300/50'}`}
-        style={commonStyle}
-      >
-        <img 
-          src={element.imageUrl} 
-          className="w-full h-full object-cover rounded-lg pointer-events-none" 
-          draggable="false" 
-          alt=""
-        />
+      <div id={`element-${element.id}`} onMouseDown={onMouseDown} onDoubleClick={onDoubleClick} onContextMenu={onContextMenu}
+        className={`absolute ${isSelected ? 'ring-4 ring-blue-500 shadow-xl' : 'hover:ring-2 hover:ring-blue-300/50'}`} style={commonStyle}>
+        <img src={element.imageUrl} className="w-full h-full object-cover rounded-lg pointer-events-none" draggable="false" alt=""
+          style={{ userSelect: 'none', transform: 'translateZ(0)', willChange: isDragging ? 'transform' : 'auto' }} />
         {renderResizeHandles()}
       </div>
     );
@@ -265,52 +243,22 @@ const CanvasElement = memo(({
 
   if (element.type === 'shape') {
     let shapeElement;
-    const shapeStyle: React.CSSProperties = {
-      backgroundColor: element.backgroundColor || '#3b82f6',
-      border: `${element.borderWidth || 0}px solid ${element.borderColor || 'transparent'}`,
-    };
-
+    const shapeStyle: React.CSSProperties = { backgroundColor: element.backgroundColor || '#3b82f6', border: `${element.borderWidth || 0}px solid ${element.borderColor || 'transparent'}` };
     switch (element.shapeType) {
-      case 'circle':
-        shapeElement = <div className="w-full h-full rounded-full" style={shapeStyle} />;
-        break;
-      case 'rectangle':
-        shapeElement = <div className="w-full h-full rounded-lg" style={shapeStyle} />;
-        break;
-      case 'triangle':
-        shapeElement = (
-          <div className="w-full h-full flex items-center justify-center">
-            <div style={{
-              width: 0,
-              height: 0,
-              borderLeft: '50px solid transparent',
-              borderRight: '50px solid transparent',
-              borderBottom: `100px solid ${element.backgroundColor || '#3b82f6'}`,
-            }} />
-          </div>
-        );
-        break;
-      case 'star':
-        shapeElement = <div className="w-full h-full flex items-center justify-center text-6xl" style={{ color: element.backgroundColor || '#3b82f6' }}>⭐</div>;
-        break;
-      default:
-        shapeElement = <div className="w-full h-full rounded-lg" style={shapeStyle} />;
+      case 'circle': shapeElement = <div className="w-full h-full rounded-full" style={shapeStyle} />; break;
+      case 'rectangle': shapeElement = <div className="w-full h-full rounded-lg" style={shapeStyle} />; break;
+      case 'triangle': shapeElement = <div className="w-full h-full flex items-center justify-center"><div style={{ width: 0, height: 0, borderLeft: '50px solid transparent', borderRight: '50px solid transparent', borderBottom: `100px solid ${element.backgroundColor || '#3b82f6'}` }} /></div>; break;
+      case 'star': shapeElement = <div className="w-full h-full flex items-center justify-center text-6xl" style={{ color: element.backgroundColor || '#3b82f6' }}>⭐</div>; break;
+      default: shapeElement = <div className="w-full h-full rounded-lg" style={shapeStyle} />;
     }
-
     return (
-      <div
-        id={`element-${element.id}`}
-        onMouseDown={onMouseDown}
-        onContextMenu={onContextMenu}
-        className={`absolute ${isSelected ? 'ring-4 ring-blue-500 shadow-xl' : 'hover:ring-2 hover:ring-blue-300/50'}`}
-        style={commonStyle}
-      >
+      <div id={`element-${element.id}`} onMouseDown={onMouseDown} onContextMenu={onContextMenu}
+        className={`absolute ${isSelected ? 'ring-4 ring-blue-500 shadow-xl' : 'hover:ring-2 hover:ring-blue-300/50'}`} style={commonStyle}>
         {shapeElement}
         {renderResizeHandles()}
       </div>
     );
   }
-
   return null;
 });
 
@@ -340,9 +288,13 @@ const EditorPage = () => {
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
   const [editingElement, setEditingElement] = useState<string | null>(null);
   
+  // ✅ NEW: Offset state for smooth dragging
   const [draggingElement, setDraggingElement] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null);
+  const [dragStartPos, setDragStartPos] = useState<{ x: number; y: number } | null>(null);
+  
   const [resizingElement, setResizingElement] = useState<{ id: string; corner: string } | null>(null);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0, elemX: 0, elemY: 0, elemW: 0, elemH: 0 });
+  const [resizeStart, setResizeStart] = useState<{ x: number; y: number; elemX: number; elemY: number; elemW: number; elemH: number } | null>(null);
   
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -351,34 +303,21 @@ const EditorPage = () => {
 
   const TYPING_LEAD_TIME_MS = 600;
 
-  useEffect(() => {
-    fetchProject();
-    fetchSlides();
-    fetchVoices();
-  }, [projectId]);
+  useEffect(() => { fetchProject(); fetchSlides(); fetchVoices(); }, [projectId]);
 
   useEffect(() => {
     if (slides[currentSlide]) {
       const slide = slides[currentSlide];
       setBgValue(slide.background_gradient);
       setBgImageUrl(slide.background_image_url || '');
-      
-      const elementsWithOrder = (slide.elements || []).map((el, idx) => ({
-        ...el,
-        readingOrder: el.readingOrder ?? idx + 1,
-      }));
+      const elementsWithOrder = (slide.elements || []).map((el, idx) => ({ ...el, readingOrder: el.readingOrder ?? idx + 1 }));
       setElements(elementsWithOrder);
       setSelectedElement(null);
       setEditingElement(null);
       setIsPlaying(false);
-      
       animationIntervalsRef.current.forEach(interval => clearInterval(interval));
       animationIntervalsRef.current.clear();
-      
-      if (audioRef.current && slide.audio_url) {
-        audioRef.current.src = slide.audio_url;
-        audioRef.current.load();
-      }
+      if (audioRef.current && slide.audio_url) { audioRef.current.src = slide.audio_url; audioRef.current.load(); }
     }
   }, [currentSlide, slides]);
 
@@ -390,368 +329,139 @@ const EditorPage = () => {
         deleteElement(selectedElement);
       }
     };
-    
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedElement, editingElement]);
 
-  // CLOSE CONTEXT MENU ON CLICK
   useEffect(() => {
     const handleClick = () => setContextMenu(null);
-    if (contextMenu) {
-      window.addEventListener('click', handleClick);
-      return () => window.removeEventListener('click', handleClick);
-    }
+    if (contextMenu) { window.addEventListener('click', handleClick); return () => window.removeEventListener('click', handleClick); }
   }, [contextMenu]);
 
   useEffect(() => {
     if (slides[currentSlide]) {
-      if (autoSaveTimeoutRef.current) {
-        clearTimeout(autoSaveTimeoutRef.current);
-      }
-      
-      autoSaveTimeoutRef.current = setTimeout(() => {
-        saveSlideQuietly();
-      }, 1500);
+      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+      autoSaveTimeoutRef.current = setTimeout(() => { saveSlideQuietly(); }, 1500);
     }
-    
-    return () => {
-      if (autoSaveTimeoutRef.current) {
-        clearTimeout(autoSaveTimeoutRef.current);
-      }
-    };
+    return () => { if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current); };
   }, [elements]);
 
   useEffect(() => {
     if (slides[currentSlide]) {
-      if (autoSaveTimeoutRef.current) {
-        clearTimeout(autoSaveTimeoutRef.current);
-      }
-      
-      autoSaveTimeoutRef.current = setTimeout(() => {
-        saveSlideQuietly();
-      }, 1000);
+      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+      autoSaveTimeoutRef.current = setTimeout(() => { saveSlideQuietly(); }, 1000);
     }
   }, [bgValue, bgImageUrl]);
 
   const fetchProject = async () => {
     try {
       const token = localStorage.getItem('accessToken');
-      const response = await axios.get(`/api/projects/${projectId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await axios.get(`/api/projects/${projectId}`, { headers: { Authorization: `Bearer ${token}` } });
       setProject(response.data.data);
-    } catch (error) {
-      console.error('Error fetching project:', error);
-    }
+    } catch (error) { console.error('Error fetching project:', error); }
   };
 
   const fetchSlides = async () => {
     try {
       const token = localStorage.getItem('accessToken');
-      const response = await axios.get(`/api/projects/${projectId}/slides`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await axios.get(`/api/projects/${projectId}/slides`, { headers: { Authorization: `Bearer ${token}` } });
       const slideData = response.data.data || [];
       setSlides(Array.isArray(slideData) ? slideData : []);
-    } catch (error) {
-      console.error('Error fetching slides:', error);
-      setSlides([]);
-    } finally {
-      setLoading(false);
-    }
+    } catch (error) { console.error('Error fetching slides:', error); setSlides([]); } finally { setLoading(false); }
   };
 
   const fetchVoices = async () => {
     try {
       const response = await axios.get('/api/tts/voices');
       const fetchedVoices = response.data.data || [];
-      if (fetchedVoices.length > 0) {
-        setVoices(fetchedVoices);
-      }
-    } catch (error) {
-      console.error('Error fetching voices:', error);
-    }
+      if (fetchedVoices.length > 0) setVoices(fetchedVoices);
+    } catch (error) { console.error('Error fetching voices:', error); }
   };
 
   const saveSlideQuietly = async () => {
     if (!slides[currentSlide]) return;
-    
     try {
       const token = localStorage.getItem('accessToken');
-      const slideData = {
-        backgroundGradient: bgValue,
-        backgroundImageUrl: bgImageUrl || null,
-        elements,
-      };
-
-      await axios.patch(
-        `/api/projects/${projectId}/slides/${slides[currentSlide].id}`,
-        slideData,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
+      const slideData = { backgroundGradient: bgValue, backgroundImageUrl: bgImageUrl || null, elements };
+      await axios.patch(`/api/projects/${projectId}/slides/${slides[currentSlide].id}`, slideData, { headers: { Authorization: `Bearer ${token}` } });
       setLastSaved(new Date());
-      
-      setSlides(prev => prev.map((s, i) => 
-        i === currentSlide 
-          ? { ...s, background_gradient: bgValue, background_image_url: bgImageUrl, elements }
-          : s
-      ));
-    } catch (error) {
-      console.error('Error auto-saving slide:', error);
-    }
+      setSlides(prev => prev.map((s, i) => i === currentSlide ? { ...s, background_gradient: bgValue, background_image_url: bgImageUrl, elements } : s));
+    } catch (error) { console.error('Error auto-saving slide:', error); }
   };
 
-  const saveSlide = async () => {
-    setSaving(true);
-    try {
-      await saveSlideQuietly();
-      alert('Slide saved!');
-    } catch (error) {
-      alert('Failed to save slide');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const saveSlide = async () => { setSaving(true); try { await saveSlideQuietly(); alert('Slide saved!'); } catch (error) { alert('Failed to save slide'); } finally { setSaving(false); } };
 
   const addSlideFromTemplate = async (template: typeof slideTemplates[0]) => {
     try {
       const token = localStorage.getItem('accessToken');
-      await axios.post(
-        `/api/projects/${projectId}/slides`,
-        {
-          background_type: 'gradient',
-          background_value: bgValue,
-          background_image_url: bgImageUrl || null,
-          elements: template.elements.map((el: any, idx: number) => ({
-            ...el,
-            id: `elem-${Date.now()}-${Math.random()}`,
-            readingOrder: idx + 1,
-            animation: { type: 'fade-in', startMs: 0, durationMs: 500 },
-          })),
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      await fetchSlides();
-      setCurrentSlide(slides.length);
-      setShowTemplateModal(false);
-    } catch (error) {
-      console.error('Error adding slide:', error);
-      alert('Failed to add slide');
-    }
+      await axios.post(`/api/projects/${projectId}/slides`, {
+        background_type: 'gradient', background_value: bgValue, background_image_url: bgImageUrl || null,
+        elements: template.elements.map((el: any, idx: number) => ({ ...el, id: `elem-${Date.now()}-${Math.random()}`, readingOrder: idx + 1, animation: { type: 'fade-in', startMs: 0, durationMs: 500 } })),
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      await fetchSlides(); setCurrentSlide(slides.length); setShowTemplateModal(false);
+    } catch (error) { console.error('Error adding slide:', error); alert('Failed to add slide'); }
   };
 
   const deleteSlide = async (slideId: string, event?: React.MouseEvent) => {
     if (event) event.stopPropagation();
-    if (slides.length === 1) {
-      alert('Cannot delete the last slide');
-      return;
-    }
+    if (slides.length === 1) { alert('Cannot delete the last slide'); return; }
     if (!confirm('Delete this slide?')) return;
-    
     try {
       const token = localStorage.getItem('accessToken');
-      await axios.delete(`/api/projects/${projectId}/slides/${slideId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      
+      await axios.delete(`/api/projects/${projectId}/slides/${slideId}`, { headers: { Authorization: `Bearer ${token}` } });
       await fetchSlides();
-      if (currentSlide >= slides.length - 1) {
-        setCurrentSlide(Math.max(0, slides.length - 2));
-      }
-    } catch (error) {
-      console.error('Error deleting slide:', error);
-      alert('Failed to delete slide');
-    }
+      if (currentSlide >= slides.length - 1) setCurrentSlide(Math.max(0, slides.length - 2));
+    } catch (error) { console.error('Error deleting slide:', error); alert('Failed to delete slide'); }
   };
 
   const generateAudio = async () => {
     if (!slides[currentSlide]) return;
-    
-    const textElements = elements
-      .filter(el => el.type === 'text' && el.textContent)
-      .sort((a, b) => a.readingOrder - b.readingOrder);
-    
-    if (textElements.length === 0) {
-      alert('Add text elements before generating audio');
-      return;
-    }
-    
+    const textElements = elements.filter(el => el.type === 'text' && el.textContent).sort((a, b) => a.readingOrder - b.readingOrder);
+    if (textElements.length === 0) { alert('Add text elements before generating audio'); return; }
     const rawText = textElements.map(el => el.textContent).join('. ');
     const textToSpeak = cleanTextForTTS(rawText);
-    
     setGenerating(true);
     try {
       const token = localStorage.getItem('accessToken');
-      
-      await axios.post(
-        `/api/tts/generate`,
-        { 
-          text: textToSpeak,
-          voice: selectedVoice,
-          rate: 1.0,
-          pitch: 0,
-          slideId: slides[currentSlide].id,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      const currentBg = bgValue;
-      const currentBgImage = bgImageUrl;
-      await fetchSlides();
-      setBgValue(currentBg);
-      setBgImageUrl(currentBgImage);
-      
+      await axios.post(`/api/tts/generate`, { text: textToSpeak, voice: selectedVoice, rate: 1.0, pitch: 0, slideId: slides[currentSlide].id }, { headers: { Authorization: `Bearer ${token}` } });
+      const currentBg = bgValue; const currentBgImage = bgImageUrl;
+      await fetchSlides(); setBgValue(currentBg); setBgImageUrl(currentBgImage);
       alert('Audio generated successfully!');
-    } catch (error: any) {
-      console.error('Error generating audio:', error);
-      alert(error.response?.data?.error || 'Failed to generate audio');
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const startElementAnimations = () => {
-    const currentSlideData = slides[currentSlide];
-    if (!currentSlideData || !audioRef.current) return;
-    
-    const sortedElements = [...elements].sort((a, b) => a.readingOrder - b.readingOrder);
-    
-    sortedElements.forEach((element) => {
-      if (element.type !== 'text' || !element.animation) return;
-      
-      const animType = element.animation.type;
-      if (animType === 'typing' && element.textContent) {
-        const startDelay = element.animation.startMs || 0;
-        const duration = element.animation.durationMs || 1000;
-        const effectiveDuration = Math.max(duration / 1000 - (TYPING_LEAD_TIME_MS / 1000), duration / 1000 * 0.7);
-        const msPerChar = (effectiveDuration * 1000) / element.textContent.length;
-        
-        setTimeout(() => {
-          let currentIndex = 0;
-          const originalText = element.textContent!;
-          
-          const typingInterval = setInterval(() => {
-            if (currentIndex <= originalText.length) {
-              updateElement(element.id, { textContent: originalText.substring(0, currentIndex) });
-              currentIndex++;
-            } else {
-              clearInterval(typingInterval);
-              animationIntervalsRef.current.delete(element.id);
-            }
-          }, msPerChar);
-          
-          animationIntervalsRef.current.set(element.id, typingInterval);
-        }, startDelay - TYPING_LEAD_TIME_MS);
-      }
-    });
+    } catch (error: any) { console.error('Error generating audio:', error); alert(error.response?.data?.error || 'Failed to generate audio'); } finally { setGenerating(false); }
   };
 
   const toggleAudioPlayback = () => {
     if (!audioRef.current) return;
-    
-    if (isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-      animationIntervalsRef.current.forEach(interval => clearInterval(interval));
-      animationIntervalsRef.current.clear();
-    } else {
-      startElementAnimations();
-      setTimeout(() => {
-        if (audioRef.current) {
-          audioRef.current.play();
-          setIsPlaying(true);
-        }
-      }, TYPING_LEAD_TIME_MS);
-    }
+    if (isPlaying) { audioRef.current.pause(); setIsPlaying(false); animationIntervalsRef.current.forEach(interval => clearInterval(interval)); animationIntervalsRef.current.clear(); }
+    else { setTimeout(() => { if (audioRef.current) { audioRef.current.play(); setIsPlaying(true); } }, TYPING_LEAD_TIME_MS); }
   };
 
-  const playSlideAudio = (audioUrl: string, event: React.MouseEvent) => {
-    event.stopPropagation();
-    const audio = new Audio(audioUrl);
-    audio.play();
-  };
+  const playSlideAudio = (audioUrl: string, event: React.MouseEvent) => { event.stopPropagation(); const audio = new Audio(audioUrl); audio.play(); };
 
   const addTextElementWithType = (textType: 'title' | 'body' | 'bullet' | 'caption' | 'custom') => {
     const preset = textTypePresets[textType];
-    const placeholderText = textType === 'bullet' ? '• Bullet point' : 
-                           textType === 'title' ? 'Title Text' :
-                           textType === 'caption' ? 'Caption text' :
-                           'Your text here';
-    
+    const placeholderText = textType === 'bullet' ? '• Bullet point' : textType === 'title' ? 'Title Text' : textType === 'caption' ? 'Caption text' : 'Your text here';
     const maxOrder = Math.max(0, ...elements.map(el => el.readingOrder || 0));
-    
-    const newElement: SlideElement = {
-      id: `elem-${Date.now()}`,
-      type: 'text',
-      textType,
-      x: 20,
-      y: 20,
-      width: preset.width,
-      height: preset.height,
-      zIndex: 1,
-      readingOrder: maxOrder + 1,
-      textContent: placeholderText,
-      fontSize: preset.fontSize,
-      color: preset.color,
-      fontWeight: preset.fontWeight,
-      fontFamily: 'Arial, sans-serif',
-      animation: { type: 'fade-in', startMs: 0, durationMs: 500 },
-    };
-    setElements([...elements, newElement]);
-    setSelectedElement(newElement.id);
-    setShowTextTypeModal(false);
+    const newElement: SlideElement = { id: `elem-${Date.now()}`, type: 'text', textType, x: 20, y: 20, width: preset.width, height: preset.height, zIndex: 1, readingOrder: maxOrder + 1, textContent: placeholderText, fontSize: preset.fontSize, color: preset.color, fontWeight: preset.fontWeight, fontFamily: 'Arial, sans-serif', animation: { type: 'fade-in', startMs: 0, durationMs: 500 } };
+    setElements([...elements, newElement]); setSelectedElement(newElement.id); setShowTextTypeModal(false);
   };
 
   const addShapeElement = (shapeType: 'circle' | 'rectangle' | 'triangle' | 'star') => {
     const maxOrder = Math.max(0, ...elements.map(el => el.readingOrder || 0));
-    const newElement: SlideElement = {
-      id: `elem-${Date.now()}`,
-      type: 'shape',
-      shapeType,
-      x: 40,
-      y: 40,
-      width: 20,
-      height: 20,
-      zIndex: 1,
-      readingOrder: maxOrder + 1,
-      backgroundColor: '#3b82f6',
-      borderColor: '#1e3a8a',
-      borderWidth: 0,
-      animation: { type: 'fade-in', startMs: 0, durationMs: 500 },
-    };
-    setElements([...elements, newElement]);
-    setSelectedElement(newElement.id);
-    setShowShapeModal(false);
+    const newElement: SlideElement = { id: `elem-${Date.now()}`, type: 'shape', shapeType, x: 40, y: 40, width: 20, height: 20, zIndex: 1, readingOrder: maxOrder + 1, backgroundColor: '#3b82f6', borderColor: '#1e3a8a', borderWidth: 0, animation: { type: 'fade-in', startMs: 0, durationMs: 500 } };
+    setElements([...elements, newElement]); setSelectedElement(newElement.id); setShowShapeModal(false);
   };
 
   const addImageElement = async () => {
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.accept = 'image/*';
+    const fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = 'image/*';
     fileInput.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (file) {
         const reader = new FileReader();
         reader.onload = (event) => {
-          const imageUrl = event.target?.result as string;
-          const maxOrder = Math.max(0, ...elements.map(el => el.readingOrder || 0));
-          const newElement: SlideElement = {
-            id: `elem-${Date.now()}`,
-            type: 'image',
-            x: 35,
-            y: 35,
-            width: 30,
-            height: 30,
-            zIndex: 1,
-            readingOrder: maxOrder + 1,
-            imageUrl,
-            animation: { type: 'fade-in', startMs: 0, durationMs: 500 },
-          };
-          setElements([...elements, newElement]);
-          setSelectedElement(newElement.id);
+          const imageUrl = event.target?.result as string; const maxOrder = Math.max(0, ...elements.map(el => el.readingOrder || 0));
+          const newElement: SlideElement = { id: `elem-${Date.now()}`, type: 'image', x: 35, y: 35, width: 30, height: 30, zIndex: 1, readingOrder: maxOrder + 1, imageUrl, animation: { type: 'fade-in', startMs: 0, durationMs: 500 } };
+          setElements([...elements, newElement]); setSelectedElement(newElement.id);
         };
         reader.readAsDataURL(file);
       }
@@ -760,18 +470,10 @@ const EditorPage = () => {
   };
 
   const addBackgroundImage = async () => {
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.accept = 'image/*';
+    const fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = 'image/*';
     fileInput.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          setBgImageUrl(event.target?.result as string);
-        };
-        reader.readAsDataURL(file);
-      }
+      if (file) { const reader = new FileReader(); reader.onload = (event) => { setBgImageUrl(event.target?.result as string); }; reader.readAsDataURL(file); }
     };
     fileInput.click();
   };
@@ -780,516 +482,193 @@ const EditorPage = () => {
     setElements(prev => prev.map(el => el.id === elementId ? { ...el, ...updates } : el));
   }, []);
 
-  const deleteElement = (elementId: string) => {
-    setElements(elements.filter(el => el.id !== elementId));
-    setSelectedElement(null);
-    setContextMenu(null);
-  };
-
+  const deleteElement = (elementId: string) => { setElements(elements.filter(el => el.id !== elementId)); setSelectedElement(null); setContextMenu(null); };
   const duplicateElement = (elementId: string) => {
-    const element = elements.find(el => el.id === elementId);
-    if (!element) return;
-    
-    const newElement = {
-      ...element,
-      id: `elem-${Date.now()}`,
-      x: element.x + 5,
-      y: element.y + 5,
-    };
-    setElements([...elements, newElement]);
-    setSelectedElement(newElement.id);
-    setContextMenu(null);
+    const element = elements.find(el => el.id === elementId); if (!element) return;
+    const newElement = { ...element, id: `elem-${Date.now()}`, x: element.x + 5, y: element.y + 5 };
+    setElements([...elements, newElement]); setSelectedElement(newElement.id); setContextMenu(null);
   };
 
   const moveElementOrder = (elementId: string, direction: 'up' | 'down') => {
     const sortedElements = [...elements].sort((a, b) => a.readingOrder - b.readingOrder);
     const currentIndex = sortedElements.findIndex(el => el.id === elementId);
-    
     if (direction === 'up' && currentIndex > 0) {
-      const temp = sortedElements[currentIndex - 1].readingOrder;
-      sortedElements[currentIndex - 1].readingOrder = sortedElements[currentIndex].readingOrder;
-      sortedElements[currentIndex].readingOrder = temp;
+      const temp = sortedElements[currentIndex - 1].readingOrder; sortedElements[currentIndex - 1].readingOrder = sortedElements[currentIndex].readingOrder; sortedElements[currentIndex].readingOrder = temp;
     } else if (direction === 'down' && currentIndex < sortedElements.length - 1) {
-      const temp = sortedElements[currentIndex + 1].readingOrder;
-      sortedElements[currentIndex + 1].readingOrder = sortedElements[currentIndex].readingOrder;
-      sortedElements[currentIndex].readingOrder = temp;
+      const temp = sortedElements[currentIndex + 1].readingOrder; sortedElements[currentIndex + 1].readingOrder = sortedElements[currentIndex].readingOrder; sortedElements[currentIndex].readingOrder = temp;
     }
-    
     setElements([...sortedElements]);
   };
 
-  const bringForward = (elementId: string) => {
-    const maxZ = Math.max(...elements.map(el => el.zIndex || 1));
-    updateElement(elementId, { zIndex: maxZ + 1 });
-    setContextMenu(null);
-  };
+  const bringForward = (elementId: string) => { const maxZ = Math.max(...elements.map(el => el.zIndex || 1)); updateElement(elementId, { zIndex: maxZ + 1 }); setContextMenu(null); };
+  const sendBackward = (elementId: string) => { const minZ = Math.min(...elements.map(el => el.zIndex || 1)); updateElement(elementId, { zIndex: Math.max(1, minZ - 1) }); setContextMenu(null); };
 
-  const sendBackward = (elementId: string) => {
-    const minZ = Math.min(...elements.map(el => el.zIndex || 1));
-    updateElement(elementId, { zIndex: Math.max(1, minZ - 1) });
-    setContextMenu(null);
-  };
+  const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => { if (e.target === e.currentTarget) { setSelectedElement(null); setEditingElement(null); } };
 
-  const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) {
-      setSelectedElement(null);
-      setEditingElement(null);
-    }
-  };
-
+  // ✅ FIXED: Mouse down handler with offset state
   const handleElementMouseDown = useCallback((elementId: string, e: React.MouseEvent) => {
     if (editingElement === elementId) return;
-    
     e.stopPropagation();
-    e.preventDefault();
-    
-    const element = elements.find(el => el.id === elementId);
-    if (!element || !canvasRef.current) return;
+    e.preventDefault(); // ✅ Prevent text selection during drag
     
     setSelectedElement(elementId);
     setDraggingElement(elementId);
-    
-    setDragStart({
-      x: e.clientX,
-      y: e.clientY,
-      elemX: element.x,
-      elemY: element.y,
-      elemW: element.width,
-      elemH: element.height,
-    });
-  }, [elements, editingElement]);
+    setDragStartPos({ x: e.clientX, y: e.clientY });
+    setDragOffset({ x: 0, y: 0 }); // ✅ Start at 0
+  }, [editingElement]);
 
+  // ✅ FIXED: Resize start handler
   const handleResizeStart = useCallback((elementId: string, corner: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    
-    const element = elements.find(el => el.id === elementId);
-    if (!element) return;
-    
-    setSelectedElement(elementId);
-    setResizingElement({ id: elementId, corner });
-    
-    setDragStart({
-      x: e.clientX,
-      y: e.clientY,
-      elemX: element.x,
-      elemY: element.y,
-      elemW: element.width,
-      elemH: element.height,
-    });
+    e.stopPropagation(); e.preventDefault();
+    const element = elements.find(el => el.id === elementId); if (!element) return;
+    setSelectedElement(elementId); setResizingElement({ id: elementId, corner });
+    setResizeStart({ x: e.clientX, y: e.clientY, elemX: element.x, elemY: element.y, elemW: element.width, elemH: element.height });
   }, [elements]);
 
+  // ✅ FIXED: Mouse move with offset state
   const handleCanvasMouseMove = useCallback((e: React.MouseEvent) => {
     if (!canvasRef.current) return;
-    
     const canvasRect = canvasRef.current.getBoundingClientRect();
-    const deltaXPct = ((e.clientX - dragStart.x) / canvasRect.width) * 100;
-    const deltaYPct = ((e.clientY - dragStart.y) / canvasRect.height) * 100;
     
-    if (draggingElement) {
-      const newX = Math.max(0, Math.min(100, dragStart.elemX + deltaXPct));
-      const newY = Math.max(0, Math.min(100, dragStart.elemY + deltaYPct));
-      
-      const draggedEl = document.getElementById(`element-${draggingElement}`);
-      if (draggedEl) {
-        draggedEl.style.transform = `translate(${deltaXPct}%, ${deltaYPct}%)`;
-      }
-    } else if (resizingElement) {
+    if (draggingElement && dragStartPos) {
+      const deltaXPct = ((e.clientX - dragStartPos.x) / canvasRect.width) * 100;
+      const deltaYPct = ((e.clientY - dragStartPos.y) / canvasRect.height) * 100;
+      setDragOffset({ x: deltaXPct, y: deltaYPct }); // ✅ Update offset state (NOT transform)
+    } else if (resizingElement && resizeStart) {
       const { id, corner } = resizingElement;
-      let newX = dragStart.elemX;
-      let newY = dragStart.elemY;
-      let newW = dragStart.elemW;
-      let newH = dragStart.elemH;
+      const deltaXPct = ((e.clientX - resizeStart.x) / canvasRect.width) * 100;
+      const deltaYPct = ((e.clientY - resizeStart.y) / canvasRect.height) * 100;
       
-      if (corner.includes('e')) {
-        newW = Math.max(5, dragStart.elemW + deltaXPct);
-      }
-      if (corner.includes('w')) {
-        newW = Math.max(5, dragStart.elemW - deltaXPct);
-        newX = dragStart.elemX + deltaXPct;
-      }
-      if (corner.includes('s')) {
-        newH = Math.max(5, dragStart.elemH + deltaYPct);
-      }
-      if (corner.includes('n')) {
-        newH = Math.max(5, dragStart.elemH - deltaYPct);
-        newY = dragStart.elemY + deltaYPct;
-      }
+      let newX = resizeStart.elemX; let newY = resizeStart.elemY; let newW = resizeStart.elemW; let newH = resizeStart.elemH;
+      if (corner.includes('e')) newW = Math.max(5, resizeStart.elemW + deltaXPct);
+      if (corner.includes('w')) { newW = Math.max(5, resizeStart.elemW - deltaXPct); newX = resizeStart.elemX + deltaXPct; }
+      if (corner.includes('s')) newH = Math.max(5, resizeStart.elemH + deltaYPct);
+      if (corner.includes('n')) { newH = Math.max(5, resizeStart.elemH - deltaYPct); newY = resizeStart.elemY + deltaYPct; }
       
-      const resizedEl = document.getElementById(`element-${id}`);
-      if (resizedEl) {
-        resizedEl.style.left = `${newX}%`;
-        resizedEl.style.top = `${newY}%`;
-        resizedEl.style.width = `${newW}%`;
-        resizedEl.style.height = `${newH}%`;
-      }
+      // ✅ Update immediately (not on mouseup)
+      setElements(prev => prev.map(el => el.id === id ? { ...el, x: newX, y: newY, width: newW, height: newH } : el));
     }
-  }, [draggingElement, resizingElement, dragStart]);
+  }, [draggingElement, dragStartPos, resizingElement, resizeStart]);
 
+  // ✅ FIXED: Mouse up applies final position
   const handleCanvasMouseUp = useCallback(() => {
-    if (draggingElement) {
-      const draggedEl = document.getElementById(`element-${draggingElement}`);
-      if (draggedEl && canvasRef.current) {
-        const canvasRect = canvasRef.current.getBoundingClientRect();
-        const rect = draggedEl.getBoundingClientRect();
-        const finalX = ((rect.left - canvasRect.left) / canvasRect.width) * 100;
-        const finalY = ((rect.top - canvasRect.top) / canvasRect.height) * 100;
-        
-        // Clear transform and update state
-        draggedEl.style.transform = '';
-        updateElement(draggingElement, { x: finalX, y: finalY });
-      }
-      setDraggingElement(null);
+    if (draggingElement && dragOffset) {
+      const element = elements.find(el => el.id === draggingElement); if (!element) return;
+      setElements(prev => prev.map(el => {
+        if (el.id === draggingElement) {
+          return { ...el, x: Math.max(0, Math.min(100 - el.width, el.x + dragOffset.x)), y: Math.max(0, Math.min(100 - el.height, el.y + dragOffset.y)) };
+        }
+        return el;
+      }));
+      setDraggingElement(null); setDragOffset(null); setDragStartPos(null);
     } else if (resizingElement) {
-      const { id } = resizingElement;
-      const resizedEl = document.getElementById(`element-${id}`);
-      if (resizedEl && canvasRef.current) {
-        const canvasRect = canvasRef.current.getBoundingClientRect();
-        const rect = resizedEl.getBoundingClientRect();
-        const finalX = ((rect.left - canvasRect.left) / canvasRect.width) * 100;
-        const finalY = ((rect.top - canvasRect.top) / canvasRect.height) * 100;
-        const finalW = (rect.width / canvasRect.width) * 100;
-        const finalH = (rect.height / canvasRect.height) * 100;
-        
-        updateElement(id, { x: finalX, y: finalY, width: finalW, height: finalH });
-      }
-      setResizingElement(null);
+      setResizingElement(null); setResizeStart(null);
     }
-  }, [draggingElement, resizingElement, updateElement]);
+  }, [draggingElement, dragOffset, resizingElement, elements]);
 
   const handleElementDoubleClick = useCallback((elementId: string) => {
     const element = elements.find(el => el.id === elementId);
-    if (element && element.type === 'text') {
-      setEditingElement(elementId);
-      setSelectedElement(elementId);
-    }
+    if (element && element.type === 'text') { setEditingElement(elementId); setSelectedElement(elementId); }
   }, [elements]);
 
-  const handleTextChange = useCallback((elementId: string, newText: string) => {
-    updateElement(elementId, { textContent: newText });
-    setEditingElement(null);
-  }, [updateElement]);
+  const handleTextBlur = useCallback((elementId: string, newText: string) => { updateElement(elementId, { textContent: newText }); setEditingElement(null); }, [updateElement]);
+  const handleContextMenu = useCallback((elementId: string, e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, elementId }); setSelectedElement(elementId); }, []);
 
-  const handleContextMenu = useCallback((elementId: string, e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setContextMenu({ x: e.clientX, y: e.clientY, elementId });
-    setSelectedElement(elementId);
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-purple-500 border-t-transparent"></div>
-          <p className="text-gray-400 mt-4">Loading editor...</p>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <div className="min-h-screen bg-gray-900 flex items-center justify-center"><div className="text-center"><div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-purple-500 border-t-transparent"></div><p className="text-gray-400 mt-4">Loading editor...</p></div></div>;
 
   const currentSlideData = slides[currentSlide];
   const sortedElements = [...elements].sort((a, b) => a.readingOrder - b.readingOrder);
 
   return (
     <div className="h-screen bg-gray-900 flex flex-col">
-      {/* Context Menu */}
       {contextMenu && (
-        <div 
-          className="fixed bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-2 z-50"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button onClick={() => duplicateElement(contextMenu.elementId)} className="w-full px-4 py-2 text-left text-white hover:bg-gray-700 flex items-center gap-2">
-            <span>📋</span> Duplicate
-          </button>
-          <button onClick={() => bringForward(contextMenu.elementId)} className="w-full px-4 py-2 text-left text-white hover:bg-gray-700 flex items-center gap-2">
-            <span>⬆️</span> Bring Forward
-          </button>
-          <button onClick={() => sendBackward(contextMenu.elementId)} className="w-full px-4 py-2 text-left text-white hover:bg-gray-700 flex items-center gap-2">
-            <span>⬇️</span> Send Backward
-          </button>
+        <div className="fixed bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-2 z-50" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={() => duplicateElement(contextMenu.elementId)} className="w-full px-4 py-2 text-left text-white hover:bg-gray-700 flex items-center gap-2"><span>📋</span> Duplicate</button>
+          <button onClick={() => bringForward(contextMenu.elementId)} className="w-full px-4 py-2 text-left text-white hover:bg-gray-700 flex items-center gap-2"><span>⬆️</span> Bring Forward</button>
+          <button onClick={() => sendBackward(contextMenu.elementId)} className="w-full px-4 py-2 text-left text-white hover:bg-gray-700 flex items-center gap-2"><span>⬇️</span> Send Backward</button>
           <hr className="my-2 border-gray-700" />
-          <button onClick={() => deleteElement(contextMenu.elementId)} className="w-full px-4 py-2 text-left text-red-400 hover:bg-red-900/20 flex items-center gap-2">
-            <span>🗑️</span> Delete
-          </button>
+          <button onClick={() => deleteElement(contextMenu.elementId)} className="w-full px-4 py-2 text-left text-red-400 hover:bg-red-900/20 flex items-center gap-2"><span>🗑️</span> Delete</button>
         </div>
       )}
 
-      {/* Template Modal */}
       {showTemplateModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setShowTemplateModal(false)}>
           <div className="bg-gray-800 rounded-2xl p-8 max-w-3xl w-full mx-4" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-2xl font-bold text-white mb-6">Choose Slide Template</h2>
-            <div className="grid grid-cols-3 gap-4">
-              {slideTemplates.map((template) => (
-                <button key={template.name} onClick={() => addSlideFromTemplate(template)} className="p-6 bg-gray-700 hover:bg-purple-600 rounded-xl transition-all text-center">
-                  <div className="text-4xl mb-3">{template.icon}</div>
-                  <div className="text-white font-semibold">{template.name}</div>
-                </button>
-              ))}
-            </div>
+            <div className="grid grid-cols-3 gap-4">{slideTemplates.map((template) => <button key={template.name} onClick={() => addSlideFromTemplate(template)} className="p-6 bg-gray-700 hover:bg-purple-600 rounded-xl transition-all text-center"><div className="text-4xl mb-3">{template.icon}</div><div className="text-white font-semibold">{template.name}</div></button>)}</div>
             <button onClick={() => setShowTemplateModal(false)} className="mt-6 w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg">Cancel</button>
           </div>
         </div>
       )}
 
-      {/* Text Type Modal */}
       {showTextTypeModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setShowTextTypeModal(false)}>
           <div className="bg-gray-800 rounded-2xl p-8 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-2xl font-bold text-white mb-6">Choose Text Type</h2>
-            <div className="space-y-3">
-              {Object.keys(textTypePresets).map(type => (
-                <button key={type} onClick={() => addTextElementWithType(type as any)} className="w-full p-4 bg-gray-700 hover:bg-purple-600 rounded-lg text-left transition-all">
-                  <div className="text-white font-bold text-lg capitalize">{type}</div>
-                </button>
-              ))}
-            </div>
+            <div className="space-y-3">{Object.keys(textTypePresets).map(type => <button key={type} onClick={() => addTextElementWithType(type as any)} className="w-full p-4 bg-gray-700 hover:bg-purple-600 rounded-lg text-left transition-all"><div className="text-white font-bold text-lg capitalize">{type}</div></button>)}</div>
             <button onClick={() => setShowTextTypeModal(false)} className="mt-6 w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg">Cancel</button>
           </div>
         </div>
       )}
 
-      {/* Shape Modal */}
       {showShapeModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setShowShapeModal(false)}>
           <div className="bg-gray-800 rounded-2xl p-8 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-2xl font-bold text-white mb-6">Choose Shape</h2>
-            <div className="grid grid-cols-2 gap-4">
-              {shapePresets.map(shape => (
-                <button key={shape.type} onClick={() => addShapeElement(shape.type as any)} className="p-6 bg-gray-700 hover:bg-purple-600 rounded-xl text-center transition-all">
-                  <div className="text-4xl mb-2">{shape.icon}</div>
-                  <div className="text-white font-semibold">{shape.name}</div>
-                </button>
-              ))}
-            </div>
+            <div className="grid grid-cols-2 gap-4">{shapePresets.map(shape => <button key={shape.type} onClick={() => addShapeElement(shape.type as any)} className="p-6 bg-gray-700 hover:bg-purple-600 rounded-xl text-center transition-all"><div className="text-4xl mb-2">{shape.icon}</div><div className="text-white font-semibold">{shape.name}</div></button>)}</div>
             <button onClick={() => setShowShapeModal(false)} className="mt-6 w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg">Cancel</button>
           </div>
         </div>
       )}
 
-      {/* Top Toolbar */}
       <div className="bg-gray-800 border-b border-gray-700 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/dashboard')} className="p-2 hover:bg-gray-700 rounded-lg transition-colors">
-            <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <div>
-            <h1 className="text-xl font-bold text-white">{project?.name}</h1>
-            <p className="text-sm text-gray-400">
-              {slides.length} slides {lastSaved && <span className="ml-2 text-green-400">• Saved {lastSaved.toLocaleTimeString()}</span>}
-            </p>
-          </div>
+          <button onClick={() => navigate('/dashboard')} className="p-2 hover:bg-gray-700 rounded-lg transition-colors"><svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
+          <div><h1 className="text-xl font-bold text-white">{project?.name}</h1><p className="text-sm text-gray-400">{slides.length} slides {lastSaved && <span className="ml-2 text-green-400">• Saved {lastSaved.toLocaleTimeString()}</span>}</p></div>
         </div>
-        
         <div className="flex gap-3">
-          <button onClick={saveSlide} disabled={saving} className="px-5 py-2.5 bg-gray-700 hover:bg-gray-600 text-white font-medium rounded-lg disabled:opacity-50">
-            {saving ? '⏳ Saving...' : '💾 Save'}
-          </button>
+          <button onClick={saveSlide} disabled={saving} className="px-5 py-2.5 bg-gray-700 hover:bg-gray-600 text-white font-medium rounded-lg disabled:opacity-50">{saving ? '⏳ Saving...' : '💾 Save'}</button>
           <button className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-medium rounded-lg">🎬 Export Video</button>
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Slide List */}
         <div className="w-64 bg-gray-800 border-r border-gray-700 overflow-y-auto">
           <div className="p-4">
             <button onClick={() => setShowTemplateModal(true)} className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg mb-4">➕ New Slide</button>
-            
-            <div className="space-y-2">
-              {slides.map((slide, index) => (
-                <div key={slide.id} onClick={() => setCurrentSlide(index)} className={`p-3 rounded-lg cursor-pointer transition-all relative group ${currentSlide === index ? 'bg-purple-600 ring-2 ring-purple-400' : 'bg-gray-700 hover:bg-gray-600'}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-bold text-white">#{index + 1}</span>
-                    <div className="flex items-center gap-2">
-                      {slide.audio_url && <button onClick={(e) => playSlideAudio(slide.audio_url!, e)} className="bg-green-500 hover:bg-green-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px]">▶</button>}
-                      <button onClick={(e) => deleteSlide(slide.id, e)} className="opacity-0 group-hover:opacity-100 bg-red-500 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">×</button>
-                    </div>
-                  </div>
-                  <div className="w-full h-20 rounded overflow-hidden" style={{ background: slide.background_gradient }}>
-                    <p className="text-white text-[10px] p-2 truncate">{slide.elements?.[0]?.textContent || `Slide ${index + 1}`}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <div className="space-y-2">{slides.map((slide, index) => <div key={slide.id} onClick={() => setCurrentSlide(index)} className={`p-3 rounded-lg cursor-pointer transition-all relative group ${currentSlide === index ? 'bg-purple-600 ring-2 ring-purple-400' : 'bg-gray-700 hover:bg-gray-600'}`}><div className="flex items-center justify-between mb-2"><span className="text-sm font-bold text-white">#{index + 1}</span><div className="flex items-center gap-2">{slide.audio_url && <button onClick={(e) => playSlideAudio(slide.audio_url!, e)} className="bg-green-500 hover:bg-green-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px]">▶</button>}<button onClick={(e) => deleteSlide(slide.id, e)} className="opacity-0 group-hover:opacity-100 bg-red-500 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">×</button></div></div><div className="w-full h-20 rounded overflow-hidden" style={{ background: slide.background_gradient }}><p className="text-white text-[10px] p-2 truncate">{slide.elements?.[0]?.textContent || `Slide ${index + 1}`}</p></div></div>)}</div>
           </div>
         </div>
 
-        {/* Canvas */}
         <div className="flex-1 bg-gray-900 p-8 overflow-auto">
           <div className="max-w-5xl mx-auto">
-            <div
-              ref={canvasRef}
-              onClick={handleCanvasClick}
-              onMouseMove={handleCanvasMouseMove}
-              onMouseUp={handleCanvasMouseUp}
-              onMouseLeave={handleCanvasMouseUp}
-              onContextMenu={(e) => e.preventDefault()}
-              className="w-full aspect-video rounded-2xl shadow-2xl relative overflow-hidden"
-              style={{ background: bgImageUrl ? `url(${bgImageUrl}) center/cover` : bgValue }}
-            >
+            <div ref={canvasRef} onClick={handleCanvasClick} onMouseMove={handleCanvasMouseMove} onMouseUp={handleCanvasMouseUp} onMouseLeave={handleCanvasMouseUp}
+              onContextMenu={(e) => e.preventDefault()} className="w-full aspect-video rounded-2xl shadow-2xl relative overflow-hidden"
+              style={{ background: bgImageUrl ? `url(${bgImageUrl}) center/cover` : bgValue }}>
               {bgImageUrl && <div className="absolute inset-0 bg-black/20" />}
-              
-              {elements.map(element => (
-                <CanvasElement
-                  key={element.id}
-                  element={element}
-                  isSelected={selectedElement === element.id}
-                  isEditing={editingElement === element.id}
-                  onMouseDown={(e) => handleElementMouseDown(element.id, e)}
-                  onDoubleClick={() => handleElementDoubleClick(element.id)}
-                  onTextChange={(text) => handleTextChange(element.id, text)}
-                  onContextMenu={(e) => handleContextMenu(element.id, e)}
-                  onResizeStart={(e, corner) => handleResizeStart(element.id, corner, e)}
-                />
-              ))}
+              {elements.map(element => <CanvasElement key={element.id} element={element} isSelected={selectedElement === element.id}
+                isEditing={editingElement === element.id} isDragging={draggingElement === element.id} dragOffset={draggingElement === element.id ? dragOffset : null}
+                onMouseDown={(e) => handleElementMouseDown(element.id, e)} onDoubleClick={() => handleElementDoubleClick(element.id)}
+                onTextBlur={(text) => handleTextBlur(element.id, text)} onContextMenu={(e) => handleContextMenu(element.id, e)}
+                onResizeStart={(e, corner) => handleResizeStart(element.id, corner, e)} />)}
             </div>
             <p className="text-gray-400 text-sm mt-4 text-center">💡 Double-click text to edit • Right-click for options • DEL to delete • Drag corners to resize</p>
           </div>
         </div>
 
-        {/* Properties Panel */}
         <div className="w-80 bg-gray-800 border-l border-gray-700 overflow-y-auto">
           <div className="p-6 space-y-6">
             <h3 className="text-lg font-bold text-white">Properties</h3>
-            
-            {/* Add Elements */}
-            <div className="bg-gray-700 rounded-lg p-4">
-              <h4 className="text-sm font-semibold text-gray-300 mb-3">Add Elements</h4>
-              <div className="space-y-2">
-                <button onClick={() => setShowTextTypeModal(true)} className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded">📝 Add Text</button>
-                <button onClick={addImageElement} className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded">🖼️ Add Image</button>
-                <button onClick={() => setShowShapeModal(true)} className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded">🔷 Add Shape</button>
-                <button onClick={addBackgroundImage} className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded">🎨 Background Image</button>
-              </div>
-            </div>
-            
-            {/* Reading Order */}
-            {elements.filter(el => el.type === 'text').length > 0 && (
-              <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-4">
-                <h4 className="text-sm font-semibold text-orange-300 mb-3">📖 Reading Order</h4>
-                <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {sortedElements.filter(el => el.type === 'text').map((element, idx) => (
-                    <div key={element.id} className={`p-2 bg-gray-700/50 rounded flex items-center justify-between ${selectedElement === element.id ? 'ring-2 ring-orange-400' : ''}`}>
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <span className="bg-orange-500 text-white text-xs px-2 py-1 rounded font-bold">{element.readingOrder}</span>
-                        <span className="text-white text-xs truncate">{element.textContent?.substring(0, 20)}...</span>
-                      </div>
-                      <div className="flex gap-1">
-                        <button onClick={() => moveElementOrder(element.id, 'up')} disabled={idx === 0} className="p-1 bg-gray-600 hover:bg-gray-500 text-white rounded disabled:opacity-30">↑</button>
-                        <button onClick={() => moveElementOrder(element.id, 'down')} disabled={idx === sortedElements.filter(el => el.type === 'text').length - 1} className="p-1 bg-gray-600 hover:bg-gray-500 text-white rounded disabled:opacity-30">↓</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {/* Selected Element */}
-            {selectedElement && elements.find(el => el.id === selectedElement) && (() => {
-              const element = elements.find(el => el.id === selectedElement)!;
-              return (
-                <div className="bg-blue-900/30 border border-blue-500/50 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-blue-300 mb-3">Selected Element</h4>
-                  <div className="space-y-3">
-                    {element.type === 'text' && (
-                      <>
-                        <div>
-                          <label className="text-xs text-gray-400">Text</label>
-                          <textarea value={element.textContent} onChange={(e) => updateElement(element.id, { textContent: e.target.value })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" rows={3} />
-                        </div>
-                        <div>
-                          <label className="text-xs text-gray-400">Font Size</label>
-                          <input type="number" value={element.fontSize} onChange={(e) => updateElement(element.id, { fontSize: parseFloat(e.target.value) })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" min="8" max="96" />
-                        </div>
-                      </>
-                    )}
-                    {element.type === 'shape' && (
-                      <>
-                        <div>
-                          <label className="text-xs text-gray-400">Shape Color</label>
-                          <input type="color" value={element.backgroundColor} onChange={(e) => updateElement(element.id, { backgroundColor: e.target.value })} className="w-full h-10 rounded" />
-                        </div>
-                        <div>
-                          <label className="text-xs text-gray-400">Border Width</label>
-                          <input type="number" value={element.borderWidth || 0} onChange={(e) => updateElement(element.id, { borderWidth: parseFloat(e.target.value) })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" min="0" max="20" />
-                        </div>
-                      </>
-                    )}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-xs text-gray-400">X</label>
-                        <input type="number" value={Math.round(element.x)} onChange={(e) => updateElement(element.id, { x: parseFloat(e.target.value) })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" min="0" max="100" />
-                      </div>
-                      <div>
-                        <label className="text-xs text-gray-400">Y</label>
-                        <input type="number" value={Math.round(element.y)} onChange={(e) => updateElement(element.id, { y: parseFloat(e.target.value) })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" min="0" max="100" />
-                      </div>
-                      <div>
-                        <label className="text-xs text-gray-400">W</label>
-                        <input type="number" value={Math.round(element.width)} onChange={(e) => updateElement(element.id, { width: parseFloat(e.target.value) })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" min="1" max="100" />
-                      </div>
-                      <div>
-                        <label className="text-xs text-gray-400">H</label>
-                        <input type="number" value={Math.round(element.height)} onChange={(e) => updateElement(element.id, { height: parseFloat(e.target.value) })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" min="1" max="100" />
-                      </div>
-                    </div>
-                    <button onClick={() => deleteElement(element.id)} className="w-full py-2 bg-red-600/30 hover:bg-red-600/50 text-red-300 text-sm font-medium rounded">🗑️ Delete</button>
-                  </div>
-                </div>
-              );
-            })()}
-            
-            {/* Background */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-300 mb-3">Background</label>
-              {bgImageUrl && (
-                <div className="mb-2 p-2 bg-green-900/20 border border-green-500/30 rounded flex items-center justify-between">
-                  <span className="text-green-400 text-xs">✓ Custom Image</span>
-                  <button onClick={() => setBgImageUrl('')} className="text-red-400 hover:text-red-300 text-xs">Remove</button>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-2">
-                {gradientPresets.map((preset) => (
-                  <button key={preset.name} onClick={() => { setBgValue(preset.value); setBgImageUrl(''); }} className={`h-16 rounded-lg border-2 transition-all ${bgValue === preset.value && !bgImageUrl ? 'border-purple-500 ring-2 ring-purple-500/50' : 'border-gray-700 hover:border-gray-600'}`} style={{ background: preset.value }} title={preset.name} />
-                ))}
-              </div>
-            </div>
-            
-            {/* Voice */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-300 mb-2">AI Voice</label>
-              <select value={selectedVoice} onChange={(e) => setSelectedVoice(e.target.value)} className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white">
-                {voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
-              </select>
-            </div>
-            
-            {/* Audio */}
-            {currentSlideData?.audio_url && (
-              <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-green-400 text-sm font-semibold">🎵 Audio Ready</span>
-                  <span className="text-green-300 text-xs">{formatDuration(currentSlideData.audio_duration)}</span>
-                </div>
-                <button onClick={toggleAudioPlayback} className="w-full py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg">{isPlaying ? '⏸ Pause' : '▶ Play'}</button>
-              </div>
-            )}
-            
-            {/* Actions */}
-            <div className="pt-4 border-t border-gray-700 space-y-2">
-              <button onClick={generateAudio} disabled={generating} className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg disabled:opacity-50">
-                {generating ? '⏳ Generating...' : '🎤 Generate Audio'}
-              </button>
-              <button onClick={() => slides[currentSlide] && deleteSlide(slides[currentSlide].id)} disabled={slides.length === 1} className="w-full py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 font-medium rounded-lg disabled:opacity-50">🗑️ Delete Slide</button>
-            </div>
+            <div className="bg-gray-700 rounded-lg p-4"><h4 className="text-sm font-semibold text-gray-300 mb-3">Add Elements</h4><div className="space-y-2"><button onClick={() => setShowTextTypeModal(true)} className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded">📝 Add Text</button><button onClick={addImageElement} className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded">🖼️ Add Image</button><button onClick={() => setShowShapeModal(true)} className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded">🔷 Add Shape</button><button onClick={addBackgroundImage} className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded">🎨 Background Image</button></div></div>
+            {elements.filter(el => el.type === 'text').length > 0 && (<div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-4"><h4 className="text-sm font-semibold text-orange-300 mb-3">📖 Reading Order</h4><div className="space-y-2 max-h-60 overflow-y-auto">{sortedElements.filter(el => el.type === 'text').map((element, idx) => <div key={element.id} className={`p-2 bg-gray-700/50 rounded flex items-center justify-between ${selectedElement === element.id ? 'ring-2 ring-orange-400' : ''}`}><div className="flex items-center gap-2 flex-1 min-w-0"><span className="bg-orange-500 text-white text-xs px-2 py-1 rounded font-bold">{element.readingOrder}</span><span className="text-white text-xs truncate">{element.textContent?.substring(0, 20)}...</span></div><div className="flex gap-1"><button onClick={() => moveElementOrder(element.id, 'up')} disabled={idx === 0} className="p-1 bg-gray-600 hover:bg-gray-500 text-white rounded disabled:opacity-30">↑</button><button onClick={() => moveElementOrder(element.id, 'down')} disabled={idx === sortedElements.filter(el => el.type === 'text').length - 1} className="p-1 bg-gray-600 hover:bg-gray-500 text-white rounded disabled:opacity-30">↓</button></div></div>)}</div></div>)}
+            {selectedElement && elements.find(el => el.id === selectedElement) && (() => { const element = elements.find(el => el.id === selectedElement)!; return (<div className="bg-blue-900/30 border border-blue-500/50 rounded-lg p-4"><h4 className="text-sm font-semibold text-blue-300 mb-3">Selected Element</h4><div className="space-y-3">{element.type === 'text' && (<><div><label className="text-xs text-gray-400">Text</label><textarea value={element.textContent} onChange={(e) => updateElement(element.id, { textContent: e.target.value })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" rows={3} /></div><div><label className="text-xs text-gray-400">Font Size</label><input type="number" value={element.fontSize} onChange={(e) => updateElement(element.id, { fontSize: parseFloat(e.target.value) })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" min="8" max="96" /></div></>)}{element.type === 'shape' && (<><div><label className="text-xs text-gray-400">Shape Color</label><input type="color" value={element.backgroundColor} onChange={(e) => updateElement(element.id, { backgroundColor: e.target.value })} className="w-full h-10 rounded" /></div><div><label className="text-xs text-gray-400">Border Width</label><input type="number" value={element.borderWidth || 0} onChange={(e) => updateElement(element.id, { borderWidth: parseFloat(e.target.value) })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" min="0" max="20" /></div></>)}<div className="grid grid-cols-2 gap-2"><div><label className="text-xs text-gray-400">X</label><input type="number" value={Math.round(element.x)} onChange={(e) => updateElement(element.id, { x: parseFloat(e.target.value) })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" min="0" max="100" /></div><div><label className="text-xs text-gray-400">Y</label><input type="number" value={Math.round(element.y)} onChange={(e) => updateElement(element.id, { y: parseFloat(e.target.value) })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" min="0" max="100" /></div><div><label className="text-xs text-gray-400">W</label><input type="number" value={Math.round(element.width)} onChange={(e) => updateElement(element.id, { width: parseFloat(e.target.value) })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" min="1" max="100" /></div><div><label className="text-xs text-gray-400">H</label><input type="number" value={Math.round(element.height)} onChange={(e) => updateElement(element.id, { height: parseFloat(e.target.value) })} className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white text-sm" min="1" max="100" /></div></div><button onClick={() => deleteElement(element.id)} className="w-full py-2 bg-red-600/30 hover:bg-red-600/50 text-red-300 text-sm font-medium rounded">🗑️ Delete</button></div></div>); })()}
+            <div><label className="block text-sm font-semibold text-gray-300 mb-3">Background</label>{bgImageUrl && (<div className="mb-2 p-2 bg-green-900/20 border border-green-500/30 rounded flex items-center justify-between"><span className="text-green-400 text-xs">✓ Custom Image</span><button onClick={() => setBgImageUrl('')} className="text-red-400 hover:text-red-300 text-xs">Remove</button></div>)}<div className="grid grid-cols-2 gap-2">{gradientPresets.map((preset) => <button key={preset.name} onClick={() => { setBgValue(preset.value); setBgImageUrl(''); }} className={`h-16 rounded-lg border-2 transition-all ${bgValue === preset.value && !bgImageUrl ? 'border-purple-500 ring-2 ring-purple-500/50' : 'border-gray-700 hover:border-gray-600'}`} style={{ background: preset.value }} title={preset.name} />)}</div></div>
+            <div><label className="block text-sm font-semibold text-gray-300 mb-2">AI Voice</label><select value={selectedVoice} onChange={(e) => setSelectedVoice(e.target.value)} className="w-full px-4 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white">{voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}</option>)}</select></div>
+            {currentSlideData?.audio_url && (<div className="bg-green-900/20 border border-green-500/30 rounded-lg p-3"><div className="flex items-center justify-between mb-2"><span className="text-green-400 text-sm font-semibold">🎵 Audio Ready</span><span className="text-green-300 text-xs">{formatDuration(currentSlideData.audio_duration)}</span></div><button onClick={toggleAudioPlayback} className="w-full py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg">{isPlaying ? '⏸ Pause' : '▶ Play'}</button></div>)}
+            <div className="pt-4 border-t border-gray-700 space-y-2"><button onClick={generateAudio} disabled={generating} className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg disabled:opacity-50">{generating ? '⏳ Generating...' : '🎤 Generate Audio'}</button><button onClick={() => slides[currentSlide] && deleteSlide(slides[currentSlide].id)} disabled={slides.length === 1} className="w-full py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 font-medium rounded-lg disabled:opacity-50">🗑️ Delete Slide</button></div>
           </div>
         </div>
       </div>
-      
       <audio ref={audioRef} onEnded={() => { setIsPlaying(false); animationIntervalsRef.current.forEach(i => clearInterval(i)); animationIntervalsRef.current.clear(); }} />
     </div>
   );
