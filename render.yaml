@@ -9,4 +9,3 @@ services:
         value: production
       - key: BUN_VERSION
         value: 1.3.4
-    plan: free

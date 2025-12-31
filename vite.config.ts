@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   root: './src/client',
   build: {
-    outDir: '../../dist',
+    outDir: '../../dist/client',
     emptyOutDir: true,
     sourcemap: false,
     minify: 'esbuild',

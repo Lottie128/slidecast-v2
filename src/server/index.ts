@@ -17,8 +17,8 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' });
 });
 
-// Serve static files
-const clientPath = path.resolve(__dirname, '../../dist/client');
+// Serve static files from dist/client
+const clientPath = path.resolve(__dirname, '../client');
 console.log('📁 Serving static files from:', clientPath);
 app.use(express.static(clientPath));
 
