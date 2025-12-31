@@ -2,7 +2,6 @@ services:
   - type: web
     name: slidecast-v2
     env: node
-    buildCommand: bun install && bun run build
     startCommand: bun run start
     envVars:
       - key: NODE_ENV

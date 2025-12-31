@@ -10,8 +10,8 @@
     "build": "bun run build:client && bun run build:server",
     "build:client": "vite build",
     "build:server": "bun build src/server/index.ts --outdir dist/server --target node",
-    "start": "NODE_ENV=production bun dist/server/index.js",
-    "render-build": "bun install && bun run build",
+    "postinstall": "bun run build",
+    "start": "test -f dist/server/index.js || bun run build; NODE_ENV=production bun dist/server/index.js",
     "preview": "vite preview"
   },
   "dependencies": {
