@@ -3,17 +3,14 @@
   "version": "2.0.0",
   "description": "Video presentation creator with animations and audio",
   "type": "module",
-  "engines": {
-    "node": ">=18.0.0"
-  },
   "scripts": {
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "dev:server": "tsx watch src/server/index.ts",
+    "dev": "bun run dev:server & bun run dev:client",
+    "dev:server": "bun --watch src/server/index.ts",
     "dev:client": "vite",
-    "build": "npm run build:client && npm run build:server",
+    "build": "bun run build:client && bun run build:server",
     "build:client": "vite build",
-    "build:server": "tsc -p tsconfig.server.json",
-    "start": "NODE_ENV=production node dist/server/index.js",
+    "build:server": "bun build src/server/index.ts --outdir dist/server --target node",
+    "start": "NODE_ENV=production bun dist/server/index.js",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -32,8 +29,6 @@
     "@vitejs/plugin-react": "^4.2.1",
     "typescript": "^5.3.3",
     "vite": "^5.0.8",
-    "tsx": "^4.7.0",
-    "concurrently": "^8.2.2",
     "autoprefixer": "^10.4.16",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0"
