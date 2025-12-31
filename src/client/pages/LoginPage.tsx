@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import { toast } from '../utils/toast';
 
 const LoginPage: React.FC = () => {
@@ -14,23 +13,49 @@ const LoginPage: React.FC = () => {
     setLoading(true);
 
     try {
-      const response = await axios.post('/api/auth/login', { email, password });
-      if (response.data.success) {
-        localStorage.setItem('accessToken', response.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.user));
-        toast.success('Welcome back!');
-        navigate('/dashboard');
+      // Get users from localStorage
+      const usersStr = localStorage.getItem('slidecast_users');
+      const users = usersStr ? JSON.parse(usersStr) : [];
+
+      // Find user
+      const user = users.find((u: any) => u.email === email);
+      
+      if (!user) {
+        toast.error('Account not found. Please sign up first.');
+        setLoading(false);
+        return;
       }
+
+      // Check password
+      if (user.password !== password) {
+        toast.error('Incorrect password');
+        setLoading(false);
+        return;
+      }
+
+      // Login successful
+      localStorage.setItem('slidecast_current_user', JSON.stringify({
+        id: user.id,
+        email: user.email,
+        name: user.name
+      }));
+      
+      toast.success(`Welcome back, ${user.name}!`);
+      navigate('/dashboard');
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Login failed');
+      toast.error('Login failed: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleDemoLogin = () => {
-    toast.info('Demo mode - redirecting to dashboard');
-    localStorage.setItem('demo', 'true');
+    localStorage.setItem('slidecast_current_user', JSON.stringify({
+      id: 'demo',
+      email: 'demo@slidecast.com',
+      name: 'Demo User'
+    }));
+    toast.success('Welcome to Demo Mode!');
     navigate('/dashboard');
   };
 

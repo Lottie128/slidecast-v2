@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import { toast } from '../utils/toast';
 
 const RegisterPage: React.FC = () => {
@@ -8,6 +7,7 @@ const RegisterPage: React.FC = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -15,23 +15,65 @@ const RegisterPage: React.FC = () => {
     setLoading(true);
 
     try {
-      const response = await axios.post('/api/auth/register', { name, email, password });
-      if (response.data.success) {
-        localStorage.setItem('accessToken', response.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.user));
-        toast.success('Account created successfully!');
-        navigate('/dashboard');
+      // Validation
+      if (password.length < 6) {
+        toast.error('Password must be at least 6 characters');
+        setLoading(false);
+        return;
       }
+
+      if (password !== confirmPassword) {
+        toast.error('Passwords do not match');
+        setLoading(false);
+        return;
+      }
+
+      // Get existing users
+      const usersStr = localStorage.getItem('slidecast_users');
+      const users = usersStr ? JSON.parse(usersStr) : [];
+
+      // Check if email already exists
+      if (users.some((u: any) => u.email === email)) {
+        toast.error('Email already registered. Please login instead.');
+        setLoading(false);
+        return;
+      }
+
+      // Create new user
+      const newUser = {
+        id: `user_${Date.now()}`,
+        name,
+        email,
+        password, // In production, this should be hashed!
+        createdAt: new Date().toISOString()
+      };
+
+      users.push(newUser);
+      localStorage.setItem('slidecast_users', JSON.stringify(users));
+
+      // Auto login
+      localStorage.setItem('slidecast_current_user', JSON.stringify({
+        id: newUser.id,
+        email: newUser.email,
+        name: newUser.name
+      }));
+
+      toast.success('Account created successfully!');
+      navigate('/dashboard');
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Registration failed');
+      toast.error('Registration failed: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleDemoLogin = () => {
-    toast.info('Demo mode - redirecting to dashboard');
-    localStorage.setItem('demo', 'true');
+    localStorage.setItem('slidecast_current_user', JSON.stringify({
+      id: 'demo',
+      email: 'demo@slidecast.com',
+      name: 'Demo User'
+    }));
+    toast.success('Welcome to Demo Mode!');
     navigate('/dashboard');
   };
 
@@ -87,6 +129,19 @@ const RegisterPage: React.FC = () => {
                 minLength={6}
                 className="w-full px-4 py-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
                 placeholder="•••••••• (min 6 characters)"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Confirm Password</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                minLength={6}
+                className="w-full px-4 py-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                placeholder="••••••••"
               />
             </div>
 
