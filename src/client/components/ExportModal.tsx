@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { generateAudioFromText, decodeAudioData } from '../utils/audioGenerator';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -153,52 +154,37 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     ctx.restore();
   };
 
-  // WORKING AUDIO EXPORT WITH DISPLAY MEDIA
+  // PERFECT MVP SOLUTION - NO PERMISSIONS!
   const exportVideoWithAudio = async () => {
-    const hasAudio = slides.some(s => s.audioText);
-    
-    if (!hasAudio) {
-      // No audio - export normally
-      await exportVideoOnly();
-      return;
-    }
-
-    // Request screen + audio capture
-    try {
-      setStatusMessage('🎤 Requesting audio permission...');
-      
-      const displayStream = await (navigator.mediaDevices as any).getDisplayMedia({
-        video: { mediaSource: 'browser' },
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false
-        },
-        preferCurrentTab: true
-      });
-
-      if (!displayStream.getAudioTracks().length) {
-        alert('⚠️ Audio not shared!\n\nPlease check "Share audio" when selecting browser tab.\n\nExporting video without audio...');
-        displayStream.getTracks().forEach(track => track.stop());
-        await exportVideoOnly();
-        return;
-      }
-
-      await exportWithCapturedAudio(displayStream);
-      
-    } catch (error) {
-      console.error('Display media error:', error);
-      alert('Screen capture cancelled or failed.\n\nExporting video without audio...');
-      await exportVideoOnly();
-    }
-  };
-
-  const exportWithCapturedAudio = async (audioStream: MediaStream) => {
     setExporting(true);
     setProgress(0);
-    setStatusMessage('Setting up audio recording...');
+    setStatusMessage('Generating audio tracks...');
 
     try {
+      const hasAudio = slides.some(s => s.audioText);
+      
+      // Generate all audio first
+      const audioBuffers: (AudioBuffer | null)[] = [];
+      if (hasAudio) {
+        for (let i = 0; i < slides.length; i++) {
+          const slide = slides[i];
+          if (slide.audioText) {
+            setStatusMessage(`Generating audio ${i + 1}/${slides.length}...`);
+            const audioBlob = await generateAudioFromText(slide.audioText);
+            if (audioBlob) {
+              const buffer = await decodeAudioData(audioBlob);
+              audioBuffers.push(buffer);
+            } else {
+              audioBuffers.push(null);
+            }
+          } else {
+            audioBuffers.push(null);
+          }
+          setProgress(Math.floor(((i + 1) / slides.length) * 30));
+        }
+      }
+
+      setStatusMessage('Setting up video export...');
       const { width, height } = getResolution();
       const canvas = document.createElement('canvas');
       canvas.width = width;
@@ -208,14 +194,38 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
 
       const videoStream = canvas.captureStream(fps);
       
-      // Combine video from canvas + audio from display capture
-      const combinedStream = new MediaStream([
-        ...videoStream.getVideoTracks(),
-        ...audioStream.getAudioTracks()
-      ]);
+      // Create audio context for playback
+      let audioStream: MediaStream | null = null;
+      if (hasAudio && audioBuffers.some(b => b !== null)) {
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
+        const dest = audioContext.createMediaStreamDestination();
+        audioStream = dest.stream;
+        
+        // Schedule all audio buffers
+        let currentTime = 0;
+        for (let i = 0; i < slides.length; i++) {
+          if (audioBuffers[i]) {
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffers[i];
+            source.connect(dest);
+            source.start(currentTime);
+          }
+          currentTime += (slides[i].duration || 5);
+          if (i < slides.length - 1 && slides[i].transition && slides[i].transition !== 'none') {
+            currentTime += (slides[i].transitionDuration || 0.5);
+          }
+        }
+      }
+
+      // Combine streams
+      const tracks = [...videoStream.getVideoTracks()];
+      if (audioStream) {
+        tracks.push(...audioStream.getAudioTracks());
+      }
+      const combinedStream = new MediaStream(tracks);
 
       const mediaRecorder = new MediaRecorder(combinedStream, {
-        mimeType: 'video/webm;codecs=vp9,opus',
+        mimeType: audioStream ? 'video/webm;codecs=vp9,opus' : 'video/webm;codecs=vp9',
         videoBitsPerSecond: quality === '4k' ? 20000000 : quality === '1080p' ? 8000000 : 5000000,
         audioBitsPerSecond: 128000
       });
@@ -224,143 +234,22 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
       mediaRecorder.onstop = () => {
-        audioStream.getTracks().forEach(track => track.stop());
-        
         const videoBlob = new Blob(chunks, { type: 'video/webm' });
         const url = URL.createObjectURL(videoBlob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${projectName.replace(/\s+/g, '_')}_${quality}_with_audio.webm`;
+        a.download = `${projectName.replace(/\s+/g, '_')}_${quality}${hasAudio ? '_with_audio' : ''}.webm`;
         a.click();
         URL.revokeObjectURL(url);
         
         setExporting(false);
         setProgress(100);
-        alert('✅ Video exported with audio!\n\n🎬 File: ' + `${projectName}_${quality}_with_audio.webm`);
+        alert(`✅ Export complete!\n\n🎬 Video: ${projectName}_${quality}${hasAudio ? '_with_audio' : ''}.webm`);
         onClose();
       };
 
       mediaRecorder.start();
-      setStatusMessage('🎙️ Recording audio + video...');
-
-      let totalFrames = 0;
-      for (let i = 0; i < slides.length; i++) {
-        totalFrames += Math.floor((slides[i].duration || 5) * fps);
-        if (i < slides.length - 1 && slides[i].transition && slides[i].transition !== 'none') {
-          totalFrames += Math.floor((slides[i].transitionDuration || 0.5) * fps);
-        }
-      }
-
-      let currentFrame = 0;
-
-      // Render slides
-      for (let slideIndex = 0; slideIndex < slides.length; slideIndex++) {
-        const slide = slides[slideIndex];
-        const duration = (slide.duration || 5) * 1000;
-        const frames = Math.floor((duration / 1000) * fps);
-        
-        setStatusMessage(`Recording slide ${slideIndex + 1}/${slides.length}...`);
-
-        // Play audio (will be captured by display media)
-        if (slide.audioText) {
-          const utterance = new SpeechSynthesisUtterance(slide.audioText);
-          utterance.rate = 0.9;
-          utterance.pitch = 1;
-          utterance.volume = 1;
-          window.speechSynthesis.speak(utterance);
-        }
-
-        for (let frame = 0; frame < frames; frame++) {
-          const frameProgress = frame / frames;
-          ctx.clearRect(0, 0, width, height);
-          await renderSlide(ctx, slide, width, height, frameProgress);
-          
-          currentFrame++;
-          setProgress(Math.floor((currentFrame / totalFrames) * 100));
-          await new Promise(resolve => setTimeout(resolve, 1000 / fps));
-        }
-
-        // Transitions
-        if (slideIndex < slides.length - 1 && slide.transition && slide.transition !== 'none') {
-          const nextSlide = slides[slideIndex + 1];
-          const transitionDuration = (slide.transitionDuration || 0.5) * 1000;
-          const transitionFrames = Math.floor((transitionDuration / 1000) * fps);
-          
-          for (let frame = 0; frame < transitionFrames; frame++) {
-            const transitionProgress = frame / transitionFrames;
-            ctx.clearRect(0, 0, width, height);
-            
-            if (slide.transition === 'fade') {
-              await renderSlide(ctx, slide, width, height, 1, 1 - transitionProgress);
-              await renderSlide(ctx, nextSlide, width, height, 0, transitionProgress);
-            } else if (slide.transition === 'slide-left') {
-              await renderSlide(ctx, slide, width, height, 1, 1, -width * transitionProgress, 0);
-              await renderSlide(ctx, nextSlide, width, height, 0, 1, width * (1 - transitionProgress), 0);
-            } else if (slide.transition === 'slide-right') {
-              await renderSlide(ctx, slide, width, height, 1, 1, width * transitionProgress, 0);
-              await renderSlide(ctx, nextSlide, width, height, 0, 1, -width * (1 - transitionProgress), 0);
-            } else if (slide.transition === 'slide-up') {
-              await renderSlide(ctx, slide, width, height, 1, 1, 0, -height * transitionProgress);
-              await renderSlide(ctx, nextSlide, width, height, 0, 1, 0, height * (1 - transitionProgress));
-            } else if (slide.transition === 'slide-down') {
-              await renderSlide(ctx, slide, width, height, 1, 1, 0, height * transitionProgress);
-              await renderSlide(ctx, nextSlide, width, height, 0, 1, 0, -height * (1 - transitionProgress));
-            }
-            
-            currentFrame++;
-            setProgress(Math.floor((currentFrame / totalFrames) * 100));
-            await new Promise(resolve => setTimeout(resolve, 1000 / fps));
-          }
-        }
-      }
-
-      window.speechSynthesis.cancel();
-      mediaRecorder.stop();
-    } catch (error) {
-      console.error('Export failed:', error);
-      alert(`❌ Export failed: ${error}`);
-      setExporting(false);
-    }
-  };
-
-  const exportVideoOnly = async () => {
-    setExporting(true);
-    setProgress(0);
-    setStatusMessage('Recording video...');
-
-    try {
-      const { width, height } = getResolution();
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d', { alpha: false });
-      if (!ctx) throw new Error('Canvas context not available');
-
-      const videoStream = canvas.captureStream(fps);
-      const mediaRecorder = new MediaRecorder(videoStream, {
-        mimeType: 'video/webm;codecs=vp9',
-        videoBitsPerSecond: quality === '4k' ? 20000000 : quality === '1080p' ? 8000000 : 5000000
-      });
-
-      const chunks: Blob[] = [];
-      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-
-      mediaRecorder.onstop = () => {
-        const videoBlob = new Blob(chunks, { type: 'video/webm' });
-        const url = URL.createObjectURL(videoBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${projectName.replace(/\s+/g, '_')}_${quality}.webm`;
-        a.click();
-        URL.revokeObjectURL(url);
-        
-        setExporting(false);
-        setProgress(100);
-        alert('✅ Video exported!');
-        onClose();
-      };
-
-      mediaRecorder.start();
+      setStatusMessage('Recording video...');
 
       let totalFrames = 0;
       for (let i = 0; i < slides.length; i++) {
@@ -385,7 +274,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
           await renderSlide(ctx, slide, width, height, frameProgress);
           
           currentFrame++;
-          setProgress(Math.floor((currentFrame / totalFrames) * 100));
+          setProgress(30 + Math.floor(((currentFrame / totalFrames) * 70)));
           await new Promise(resolve => setTimeout(resolve, 1000 / fps));
         }
 
@@ -416,7 +305,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
             }
             
             currentFrame++;
-            setProgress(Math.floor((currentFrame / totalFrames) * 100));
+            setProgress(30 + Math.floor(((currentFrame / totalFrames) * 70)));
             await new Promise(resolve => setTimeout(resolve, 1000 / fps));
           }
         }
@@ -425,7 +314,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       mediaRecorder.stop();
     } catch (error) {
       console.error('Export failed:', error);
-      alert(`❌ Export failed: ${error}`);
+      alert(`❌ Export failed: ${error}\n\nPlease try again.`);
       setExporting(false);
     }
   };
@@ -556,9 +445,9 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
             </div>
 
             {slides.some(s => s.audioText) && (
-              <div className="mb-6 p-3 bg-blue-900/30 border border-blue-600 rounded">
-                <p className="text-xs text-blue-300 mb-2">🎤 Audio Export Instructions:</p>
-                <p className="text-xs text-gray-300">When prompted, select <strong>"Browser Tab"</strong> and check <strong>"Share audio"</strong> to record narration.</p>
+              <div className="mb-6 p-3 bg-green-900/30 border border-green-600 rounded">
+                <p className="text-xs text-green-300 font-bold mb-1">✅ No Permissions Needed!</p>
+                <p className="text-xs text-gray-300">Audio generated client-side automatically.</p>
               </div>
             )}
           </>
