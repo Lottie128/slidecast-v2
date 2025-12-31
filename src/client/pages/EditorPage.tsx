@@ -82,6 +82,8 @@ const EditorPage: React.FC = () => {
   const [previewing, setPreviewing] = useState(false);
   const [previewSlide, setPreviewSlide] = useState(0);
   const previewIntervalRef = useRef<any>(null);
+  const [draggedLayer, setDraggedLayer] = useState<string | null>(null);
+  const [dragOverLayer, setDragOverLayer] = useState<string | null>(null);
   
   const canvasRef = useRef<HTMLDivElement>(null);
   const [canvasScale, setCanvasScale] = useState(1);
@@ -233,6 +235,52 @@ const EditorPage: React.FC = () => {
   const duplicateSelected = () => { copySelected(); setTimeout(() => paste(), 10); };
   const updateElement = (elementId: string, updates: Partial<SlideElement>) => {
     updateElements(elements.map(el => el.id === elementId ? { ...el, ...updates } : el));
+  };
+
+  // Layer reordering functions
+  const moveLayerUp = (elementId: string) => {
+    const index = elements.findIndex(el => el.id === elementId);
+    if (index < elements.length - 1) {
+      const newElements = [...elements];
+      [newElements[index], newElements[index + 1]] = [newElements[index + 1], newElements[index]];
+      updateElements(newElements);
+    }
+  };
+
+  const moveLayerDown = (elementId: string) => {
+    const index = elements.findIndex(el => el.id === elementId);
+    if (index > 0) {
+      const newElements = [...elements];
+      [newElements[index], newElements[index - 1]] = [newElements[index - 1], newElements[index]];
+      updateElements(newElements);
+    }
+  };
+
+  const handleLayerDragStart = (e: React.DragEvent, elementId: string) => {
+    setDraggedLayer(elementId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleLayerDragOver = (e: React.DragEvent, elementId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverLayer(elementId);
+  };
+
+  const handleLayerDrop = (e: React.DragEvent, targetElementId: string) => {
+    e.preventDefault();
+    if (draggedLayer && draggedLayer !== targetElementId) {
+      const draggedIndex = elements.findIndex(el => el.id === draggedLayer);
+      const targetIndex = elements.findIndex(el => el.id === targetElementId);
+      
+      const newElements = [...elements];
+      const [draggedElement] = newElements.splice(draggedIndex, 1);
+      newElements.splice(targetIndex, 0, draggedElement);
+      
+      updateElements(newElements);
+    }
+    setDraggedLayer(null);
+    setDragOverLayer(null);
   };
 
   const handleMouseDown = (e: React.MouseEvent, elementId: string) => {
@@ -515,7 +563,10 @@ const EditorPage: React.FC = () => {
       <div className="flex-1 flex overflow-hidden">
         <aside className="w-56 bg-gray-800 border-r border-gray-700 overflow-y-auto flex-shrink-0">
           <div className="p-3">
-            <h3 className="text-xs font-semibold mb-2 text-gray-400 uppercase">Layers ({elements.length})</h3>
+            <h3 className="text-xs font-semibold mb-2 text-gray-400 uppercase flex items-center justify-between">
+              <span>Layers ({elements.length})</span>
+              <span className="text-xs text-gray-500">↕️ Drag</span>
+            </h3>
             <div className="space-y-1">
               {elements.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
@@ -523,19 +574,65 @@ const EditorPage: React.FC = () => {
                   <p className="text-xs">Click buttons above</p>
                 </div>
               ) : (
-                elements.map((element, idx) => (
-                  <div key={element.id} onClick={() => !previewing && setSelectedElements([element.id])}
-                    className={`px-2 py-1.5 rounded cursor-pointer text-xs transition-all ${
-                      selectedElements.includes(element.id) && !previewing ? 'bg-purple-600 text-white' : 'bg-gray-700 hover:bg-gray-600'
-                    }`}>
-                    <div className="flex items-center gap-1 truncate">
-                      {element.type === 'text' && '📝'} {element.type === 'shape' && '▢'} {element.type === 'image' && '🖼'}
-                      <span className="truncate">{element.content || element.type}</span>
+                [...elements].reverse().map((element, reverseIdx) => {
+                  const actualIdx = elements.length - 1 - reverseIdx;
+                  return (
+                    <div
+                      key={element.id}
+                      draggable={!previewing}
+                      onDragStart={(e) => handleLayerDragStart(e, element.id)}
+                      onDragOver={(e) => handleLayerDragOver(e, element.id)}
+                      onDrop={(e) => handleLayerDrop(e, element.id)}
+                      onClick={() => !previewing && setSelectedElements([element.id])}
+                      className={`px-2 py-2 rounded cursor-move text-xs transition-all ${
+                        selectedElements.includes(element.id) && !previewing ? 'bg-purple-600 text-white ring-2 ring-purple-400' : 'bg-gray-700 hover:bg-gray-600'
+                      } ${
+                        dragOverLayer === element.id ? 'ring-2 ring-blue-400' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex flex-col gap-0.5">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); moveLayerUp(element.id); }}
+                            disabled={actualIdx === elements.length - 1}
+                            className="text-xs hover:text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Move up (front)"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); moveLayerDown(element.id); }}
+                            disabled={actualIdx === 0}
+                            className="text-xs hover:text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Move down (back)"
+                          >
+                            ▼
+                          </button>
+                        </div>
+                        <div className="flex-1 truncate">
+                          <div className="flex items-center gap-1 mb-0.5">
+                            {element.type === 'text' && '📝'}
+                            {element.type === 'shape' && '▢'}
+                            {element.type === 'image' && '🖼'}
+                            <span className="truncate font-medium">
+                              {element.content || element.type}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-gray-400">
+                            Layer {actualIdx + 1}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
+            {elements.length > 0 && (
+              <div className="mt-3 p-2 bg-blue-900/20 border border-blue-700 rounded">
+                <p className="text-[10px] text-blue-300">💡 Tip: Drag layers to reorder, or use ▲▼ buttons</p>
+              </div>
+            )}
           </div>
         </aside>
 
