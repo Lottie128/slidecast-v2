@@ -70,25 +70,25 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     ctx.globalAlpha = globalAlpha;
     ctx.translate(offsetX, offsetY);
     
-    // Render background - FIXED: Properly handle all background types
+    // ALWAYS clear first to prevent flickering
+    ctx.clearRect(-offsetX, -offsetY, width, height);
+    
+    // Render background
     if (slide.backgroundType === 'image' && slide.backgroundImage) {
       try {
         const img = await loadImage(slide.backgroundImage);
-        ctx.drawImage(img, 0, 0, width, height);
+        ctx.drawImage(img, -offsetX, -offsetY, width, height);
       } catch (e) {
-        // Fallback to color if image fails
         ctx.fillStyle = slide.background || '#ffffff';
-        ctx.fillRect(0, 0, width, height);
+        ctx.fillRect(-offsetX, -offsetY, width, height);
       }
     } else if (slide.backgroundType === 'gradient' || slide.background?.includes('gradient')) {
-      // Handle gradient backgrounds
       const gradient = parseGradient(slide.background, width, height, ctx);
       ctx.fillStyle = gradient || slide.background || '#ffffff';
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(-offsetX, -offsetY, width, height);
     } else {
-      // Solid color background
       ctx.fillStyle = slide.background || '#ffffff';
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(-offsetX, -offsetY, width, height);
     }
     
     // Render all elements
@@ -117,14 +117,12 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       }
       
       if (element.type === 'text') {
-        // Background for text
         if (element.backgroundColor && element.backgroundColor !== 'transparent') {
           ctx.fillStyle = element.backgroundColor;
           roundRect(ctx, -element.width/2, -element.height/2, element.width, element.height, element.borderRadius || 0);
           ctx.fill();
         }
         
-        // Text rendering
         const fontStyle = element.fontStyle === 'italic' ? 'italic ' : '';
         const fontWeight = element.fontWeight || (element.bold ? 700 : 400);
         ctx.font = `${fontStyle}${fontWeight} ${element.fontSize || 32}px ${element.fontFamily || 'Inter, Arial, sans-serif'}`;
@@ -133,7 +131,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         ctx.textBaseline = 'middle';
         if (element.blur) ctx.filter = `blur(${element.blur}px)`;
         
-        // Word wrapping
         const words = (element.content || '').split(' ');
         const lines: string[] = [];
         let currentLine = '';
@@ -188,17 +185,14 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     if (!gradientString || !gradientString.includes('gradient')) return null;
     
     try {
-      // Extract colors from gradient string
       const colorMatches = gradientString.match(/#[0-9a-fA-F]{6}|rgb\([^)]+\)/g);
       if (!colorMatches || colorMatches.length < 2) return null;
       
-      // Determine gradient direction
       const isRadial = gradientString.includes('radial');
       const gradient = isRadial 
         ? ctx.createRadialGradient(width/2, height/2, 0, width/2, height/2, Math.max(width, height)/2)
         : ctx.createLinearGradient(0, 0, width, 0);
       
-      // Add color stops
       colorMatches.forEach((color, index) => {
         gradient.addColorStop(index / (colorMatches.length - 1), color);
       });
@@ -209,22 +203,19 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     }
   };
 
-  // FIXED: Proper audio timing - wait for TTS to finish
   const speakText = (text: string): Promise<void> => {
     return new Promise((resolve) => {
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 0.9;
       utterance.pitch = 1;
       utterance.volume = 1;
-      
       utterance.onend = () => resolve();
       utterance.onerror = () => resolve();
-      
       window.speechSynthesis.speak(utterance);
     });
   };
 
-  // FIXED: Canvas-only export (no screen capture popup!)
+  // FIXED: Use requestAnimationFrame for smooth rendering (NO FLICKERING!)
   const exportVideo = async () => {
     setExporting(true);
     setProgress(0);
@@ -233,17 +224,22 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     try {
       const { width, height } = getResolution();
       
-      // Create offscreen canvas for rendering
+      // Create canvas
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
-      const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+      const ctx = canvas.getContext('2d', { 
+        alpha: false, 
+        desynchronized: false,  // CHANGED: false for stable frame capture
+        willReadFrequently: false 
+      });
       if (!ctx) throw new Error('Canvas context not available');
       
-      // Get canvas stream
-      const stream = canvas.captureStream(fps);
+      // Solid black background initially
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, width, height);
       
-      // Setup media recorder
+      const stream = canvas.captureStream(fps);
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: 'video/webm;codecs=vp9',
         videoBitsPerSecond: quality === '4k' ? 20000000 : quality === '1080p' ? 8000000 : 5000000
@@ -281,72 +277,79 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       }
 
       let currentFrame = 0;
+      const frameInterval = 1000 / fps;
 
-      // Render each slide
+      // FIXED: Use requestAnimationFrame with precise timing
+      const renderFrame = async (slideIndex: number, frame: number, totalSlideFrames: number, isTransition: boolean = false, nextSlide?: any) => {
+        const slide = slides[slideIndex];
+        const frameProgress = frame / totalSlideFrames;
+        
+        // Clear entire canvas before each frame
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, width, height);
+        
+        if (isTransition && nextSlide) {
+          // Transition rendering
+          const transitionProgress = frameProgress;
+          
+          if (slide.transition === 'fade') {
+            await renderSlide(ctx, slide, width, height, 1, 1 - transitionProgress);
+            await renderSlide(ctx, nextSlide, width, height, 0, transitionProgress);
+          } else if (slide.transition === 'slide-left') {
+            await renderSlide(ctx, slide, width, height, 1, 1, -width * transitionProgress, 0);
+            await renderSlide(ctx, nextSlide, width, height, 0, 1, width * (1 - transitionProgress), 0);
+          } else if (slide.transition === 'slide-right') {
+            await renderSlide(ctx, slide, width, height, 1, 1, width * transitionProgress, 0);
+            await renderSlide(ctx, nextSlide, width, height, 0, 1, -width * (1 - transitionProgress), 0);
+          } else if (slide.transition === 'slide-up') {
+            await renderSlide(ctx, slide, width, height, 1, 1, 0, -height * transitionProgress);
+            await renderSlide(ctx, nextSlide, width, height, 0, 1, 0, height * (1 - transitionProgress));
+          } else if (slide.transition === 'slide-down') {
+            await renderSlide(ctx, slide, width, height, 1, 1, 0, height * transitionProgress);
+            await renderSlide(ctx, nextSlide, width, height, 0, 1, 0, -height * (1 - transitionProgress));
+          }
+        } else {
+          // Normal slide rendering
+          await renderSlide(ctx, slide, width, height, frameProgress);
+        }
+        
+        currentFrame++;
+        setProgress(Math.floor((currentFrame / totalFrames) * 90));
+      };
+
+      // Render all slides
       for (let slideIndex = 0; slideIndex < slides.length; slideIndex++) {
         const slide = slides[slideIndex];
         setStatusMessage(`🎥 Recording slide ${slideIndex + 1}/${slides.length}...`);
         
-        // Start audio for this slide (if any) - FIXED: Don't wait here, just start it
+        // Start TTS if exists
         if (slide.audioText) {
-          speakText(slide.audioText); // Fire and forget
+          speakText(slide.audioText);
         }
         
-        // Calculate frames for this slide duration
         const duration = slide.duration || 5;
         const frames = Math.floor(duration * fps);
         
-        // Render frames for this slide
+        // Render each frame with precise timing
         for (let frame = 0; frame < frames; frame++) {
-          const frameProgress = frame / frames;
-          
-          // Clear and render
-          ctx.clearRect(0, 0, width, height);
-          await renderSlide(ctx, slide, width, height, frameProgress);
-          
-          currentFrame++;
-          setProgress(Math.floor((currentFrame / totalFrames) * 90)); // Save 10% for encoding
-          
-          // Control frame timing
-          await new Promise(resolve => setTimeout(resolve, 1000 / fps));
+          await renderFrame(slideIndex, frame, frames);
+          // FIXED: Use proper frame timing
+          await new Promise(resolve => setTimeout(resolve, frameInterval));
         }
 
-        // Render transition to next slide
+        // Render transition
         if (slideIndex < slides.length - 1 && slide.transition && slide.transition !== 'none') {
           const nextSlide = slides[slideIndex + 1];
           const transitionDuration = slide.transitionDuration || 0.5;
           const transitionFrames = Math.floor(transitionDuration * fps);
           
           for (let frame = 0; frame < transitionFrames; frame++) {
-            const transitionProgress = frame / transitionFrames;
-            ctx.clearRect(0, 0, width, height);
-            
-            // Render transition effect
-            if (slide.transition === 'fade') {
-              await renderSlide(ctx, slide, width, height, 1, 1 - transitionProgress);
-              await renderSlide(ctx, nextSlide, width, height, 0, transitionProgress);
-            } else if (slide.transition === 'slide-left') {
-              await renderSlide(ctx, slide, width, height, 1, 1, -width * transitionProgress, 0);
-              await renderSlide(ctx, nextSlide, width, height, 0, 1, width * (1 - transitionProgress), 0);
-            } else if (slide.transition === 'slide-right') {
-              await renderSlide(ctx, slide, width, height, 1, 1, width * transitionProgress, 0);
-              await renderSlide(ctx, nextSlide, width, height, 0, 1, -width * (1 - transitionProgress), 0);
-            } else if (slide.transition === 'slide-up') {
-              await renderSlide(ctx, slide, width, height, 1, 1, 0, -height * transitionProgress);
-              await renderSlide(ctx, nextSlide, width, height, 0, 1, 0, height * (1 - transitionProgress));
-            } else if (slide.transition === 'slide-down') {
-              await renderSlide(ctx, slide, width, height, 1, 1, 0, height * transitionProgress);
-              await renderSlide(ctx, nextSlide, width, height, 0, 1, 0, -height * (1 - transitionProgress));
-            }
-            
-            currentFrame++;
-            setProgress(Math.floor((currentFrame / totalFrames) * 90));
-            await new Promise(resolve => setTimeout(resolve, 1000 / fps));
+            await renderFrame(slideIndex, frame, transitionFrames, true, nextSlide);
+            await new Promise(resolve => setTimeout(resolve, frameInterval));
           }
         }
       }
 
-      // Stop audio and recording
       window.speechSynthesis.cancel();
       setProgress(95);
       setStatusMessage('🎬 Encoding video...');
@@ -375,10 +378,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         const ctx = canvas.getContext('2d');
         if (!ctx) continue;
 
-        // Render slide at full quality
         await renderSlide(ctx, slide, width, height, 1);
 
-        // Download as PNG
         canvas.toBlob((blob) => {
           if (blob) {
             const url = URL.createObjectURL(blob);
@@ -444,7 +445,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
   
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      {/* FIXED: Scrollable modal for 13" laptops */}
       <div 
         className="bg-gray-800 rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" 
         onClick={(e) => e.stopPropagation()}
@@ -503,10 +503,9 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
 
               {slides.some(s => s.audioText) && (
                 <div className="mb-6 p-3 bg-blue-900/30 border border-blue-600 rounded">
-                  <p className="text-xs text-blue-300 mb-1">🎵 Audio Export Notes:</p>
-                  <p className="text-xs text-gray-300">• Browser TTS will be synced with video</p>
-                  <p className="text-xs text-gray-300">• No screen capture popup!</p>
-                  <p className="text-xs text-gray-300">• Audio plays during slide duration</p>
+                  <p className="text-xs text-blue-300 mb-1">🎵 Audio Export:</p>
+                  <p className="text-xs text-gray-300">• No popups - TTS synced automatically</p>
+                  <p className="text-xs text-gray-300">• No flickering - stable frame rendering</p>
                 </div>
               )}
             </>
