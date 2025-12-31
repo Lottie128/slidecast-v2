@@ -6,8 +6,6 @@ import AudioPanel from '../components/AudioPanel';
 import TemplateGallery from '../components/TemplateGallery';
 import ExportModal from '../components/ExportModal';
 
-// LAUNCH-READY VIDEO EDITOR - SAVE, PREVIEW, EXPORT + TRANSITIONS!
-
 interface SlideElement {
   id: string;
   type: 'text' | 'shape' | 'image';
@@ -21,6 +19,9 @@ interface SlideElement {
   fontSize?: number;
   fontFamily?: string;
   fontWeight?: number;
+  fontStyle?: 'normal' | 'italic';
+  bold?: boolean;
+  textAlign?: 'left' | 'center' | 'right' | 'justify';
   opacity?: number;
   rotation?: number;
   locked?: boolean;
@@ -191,6 +192,9 @@ const EditorPage: React.FC = () => {
       fontSize: 48,
       fontFamily: 'Inter',
       fontWeight: 600,
+      fontStyle: 'normal',
+      bold: false,
+      textAlign: 'center',
       opacity: 100,
       rotation: 0,
       visible: true,
@@ -340,7 +344,7 @@ const EditorPage: React.FC = () => {
   };
 
   const deleteSlide = (index: number) => {
-    if (slides.length <= 1) { alert('Cannot delete the last slide!'); return; }
+    if (slides.length <= 1) return;
     if (confirm(`Delete ${slides[index].name}?`)) {
       const newSlides = slides.filter((_, i) => i !== index);
       setSlides(newSlides);
@@ -389,7 +393,7 @@ const EditorPage: React.FC = () => {
 
   const generateAudioFromSlide = async () => {
     const textElements = elements.filter(el => el.type === 'text' && el.content);
-    if (textElements.length === 0) { alert('No text elements found on this slide!'); return; }
+    if (textElements.length === 0) return;
     
     const combinedText = textElements.map(el => el.content).join('. ');
     setAudioGenerating(true);
@@ -410,11 +414,6 @@ const EditorPage: React.FC = () => {
           duration: estimatedDuration 
         } : slide
       ));
-      
-      alert('Audio generated successfully! ✅\nClick the Play button in the toolbar to preview.');
-    } catch (error) {
-      console.error('Audio generation failed:', error);
-      alert('Audio generation failed.');
     } finally {
       setAudioGenerating(false);
     }
@@ -578,13 +577,17 @@ const EditorPage: React.FC = () => {
                       style={{
                         color: element.color, fontSize: `${(element.fontSize || 32) * canvasScale}px`,
                         fontFamily: element.fontFamily || 'Inter', fontWeight: element.fontWeight || 400,
+                        fontStyle: element.fontStyle || 'normal',
                         filter: element.blur ? `blur(${element.blur}px)` : 'none'
                       }} />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center px-2" style={{
                       color: element.color, fontSize: `${(element.fontSize || 32) * canvasScale}px`,
-                      fontFamily: element.fontFamily || 'Inter', fontWeight: element.fontWeight || 400,
-                      textAlign: 'center', backgroundColor: element.backgroundColor,
+                      fontFamily: element.fontFamily || 'Inter', 
+                      fontWeight: element.bold ? 700 : (element.fontWeight || 400),
+                      fontStyle: element.fontStyle || 'normal',
+                      textAlign: element.textAlign || 'center', 
+                      backgroundColor: element.backgroundColor,
                       borderRadius: `${(element.borderRadius || 0) * canvasScale}px`,
                       filter: element.blur ? `blur(${element.blur}px)` : 'none'
                     }}>{element.content}</div>
@@ -731,6 +734,45 @@ const EditorPage: React.FC = () => {
                         onChange={(e) => updateElement(selectedElement.id, { fontSize: parseInt(e.target.value) })}
                         className="w-full" />
                     </div>
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-2">Font Family</label>
+                      <select value={selectedElement.fontFamily || 'Inter'}
+                        onChange={(e) => updateElement(selectedElement.id, { fontFamily: e.target.value })}
+                        className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded text-white text-sm">
+                        <option value="Inter">Inter</option>
+                        <option value="Arial">Arial</option>
+                        <option value="Georgia">Georgia</option>
+                        <option value="Times New Roman">Times New Roman</option>
+                        <option value="Courier New">Courier New</option>
+                        <option value="Verdana">Verdana</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-2">Text Align</label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {['left', 'center', 'right', 'justify'].map((align) => (
+                          <button key={align} onClick={() => updateElement(selectedElement.id, { textAlign: align as any })}
+                            className={`px-2 py-1.5 rounded text-xs font-medium ${
+                              (selectedElement.textAlign || 'center') === align ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            }`}>
+                            {align === 'left' && '←'}
+                            {align === 'center' && '↔'}
+                            {align === 'right' && '→'}
+                            {align === 'justify' && '='}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => updateElement(selectedElement.id, { bold: !selectedElement.bold })}
+                        className={`flex-1 px-3 py-2 rounded text-sm font-bold ${
+                          selectedElement.bold ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        }`}>B</button>
+                      <button onClick={() => updateElement(selectedElement.id, { fontStyle: selectedElement.fontStyle === 'italic' ? 'normal' : 'italic' })}
+                        className={`flex-1 px-3 py-2 rounded text-sm italic ${
+                          selectedElement.fontStyle === 'italic' ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        }`}>I</button>
+                    </div>
                   </>
                 )}
                 {selectedElement.type === 'shape' && (
@@ -739,6 +781,14 @@ const EditorPage: React.FC = () => {
                     <input type="color" value={selectedElement.backgroundColor || '#8b5cf6'}
                       onChange={(e) => updateElement(selectedElement.id, { backgroundColor: e.target.value })}
                       className="w-full h-10 rounded" />
+                  </div>
+                )}
+                {selectedElement.type === 'image' && (
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">Rounded Corners: {selectedElement.borderRadius || 0}px</label>
+                    <input type="range" min="0" max="100" value={selectedElement.borderRadius || 0}
+                      onChange={(e) => updateElement(selectedElement.id, { borderRadius: parseInt(e.target.value) })}
+                      className="w-full" />
                   </div>
                 )}
                 <div>

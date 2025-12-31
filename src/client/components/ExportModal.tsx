@@ -99,9 +99,11 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
           ctx.fill();
         }
         
-        ctx.font = `${element.fontWeight || 400} ${element.fontSize || 32}px ${element.fontFamily || 'Arial'}`;
+        const fontStyle = element.fontStyle === 'italic' ? 'italic ' : '';
+        const fontWeight = element.fontWeight || (element.bold ? 700 : 400);
+        ctx.font = `${fontStyle}${fontWeight} ${element.fontSize || 32}px ${element.fontFamily || 'Arial'}`;
         ctx.fillStyle = element.color || '#000000';
-        ctx.textAlign = 'center';
+        ctx.textAlign = element.textAlign || 'center';
         ctx.textBaseline = 'middle';
         if (element.blur) ctx.filter = `blur(${element.blur}px)`;
         
@@ -153,17 +155,14 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     ctx.restore();
   };
 
-  // WORKING AUDIO EXPORT WITH DISPLAY MEDIA
   const exportVideoWithAudio = async () => {
     const hasAudio = slides.some(s => s.audioText);
     
     if (!hasAudio) {
-      // No audio - export normally
       await exportVideoOnly();
       return;
     }
 
-    // Request screen + audio capture
     try {
       setStatusMessage('🎤 Requesting audio permission...');
       
@@ -178,7 +177,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       });
 
       if (!displayStream.getAudioTracks().length) {
-        alert('⚠️ Audio not shared!\n\nPlease check "Share audio" when selecting browser tab.\n\nExporting video without audio...');
+        setStatusMessage('No audio shared - exporting without audio...');
         displayStream.getTracks().forEach(track => track.stop());
         await exportVideoOnly();
         return;
@@ -188,7 +187,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       
     } catch (error) {
       console.error('Display media error:', error);
-      alert('Screen capture cancelled or failed.\n\nExporting video without audio...');
+      setStatusMessage('Exporting without audio...');
       await exportVideoOnly();
     }
   };
@@ -208,7 +207,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
 
       const videoStream = canvas.captureStream(fps);
       
-      // Combine video from canvas + audio from display capture
       const combinedStream = new MediaStream([
         ...videoStream.getVideoTracks(),
         ...audioStream.getAudioTracks()
@@ -236,8 +234,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         
         setExporting(false);
         setProgress(100);
-        alert('✅ Video exported with audio!\n\n🎬 File: ' + `${projectName}_${quality}_with_audio.webm`);
-        onClose();
+        setStatusMessage('✅ Export complete!');
+        setTimeout(() => onClose(), 1500);
       };
 
       mediaRecorder.start();
@@ -253,7 +251,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
 
       let currentFrame = 0;
 
-      // Render slides
       for (let slideIndex = 0; slideIndex < slides.length; slideIndex++) {
         const slide = slides[slideIndex];
         const duration = (slide.duration || 5) * 1000;
@@ -261,7 +258,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         
         setStatusMessage(`Recording slide ${slideIndex + 1}/${slides.length}...`);
 
-        // Play audio (will be captured by display media)
         if (slide.audioText) {
           const utterance = new SpeechSynthesisUtterance(slide.audioText);
           utterance.rate = 0.9;
@@ -280,7 +276,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
           await new Promise(resolve => setTimeout(resolve, 1000 / fps));
         }
 
-        // Transitions
         if (slideIndex < slides.length - 1 && slide.transition && slide.transition !== 'none') {
           const nextSlide = slides[slideIndex + 1];
           const transitionDuration = (slide.transitionDuration || 0.5) * 1000;
@@ -318,7 +313,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       mediaRecorder.stop();
     } catch (error) {
       console.error('Export failed:', error);
-      alert(`❌ Export failed: ${error}`);
+      setStatusMessage('❌ Export failed');
       setExporting(false);
     }
   };
@@ -356,8 +351,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         
         setExporting(false);
         setProgress(100);
-        alert('✅ Video exported!');
-        onClose();
+        setStatusMessage('✅ Export complete!');
+        setTimeout(() => onClose(), 1500);
       };
 
       mediaRecorder.start();
@@ -425,7 +420,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       mediaRecorder.stop();
     } catch (error) {
       console.error('Export failed:', error);
-      alert(`❌ Export failed: ${error}`);
+      setStatusMessage('❌ Export failed');
       setExporting(false);
     }
   };
@@ -491,8 +486,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     }
 
     setExporting(false);
-    alert('✅ PNG slides exported!');
-    onClose();
+    setStatusMessage('✅ Export complete!');
+    setTimeout(() => onClose(), 1500);
   };
   
   const handleExport = async () => {
@@ -501,7 +496,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     } else if (format === 'png') {
       await exportPNG();
     } else {
-      alert('PDF export coming soon!');
+      setStatusMessage('PDF export coming soon!');
     }
   };
   
