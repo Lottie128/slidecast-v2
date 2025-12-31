@@ -1,11 +1,11 @@
 services:
   - type: web
     name: slidecast-v2
-    runtime: node
+    env: node
     buildCommand: bun install && bun run build
     startCommand: bun run start
     envVars:
       - key: NODE_ENV
         value: production
-      - key: BUN_VERSION
-        value: 1.3.4
+      - key: PORT
+        value: 10000

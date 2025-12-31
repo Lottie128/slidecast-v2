@@ -11,6 +11,7 @@
     "build:client": "vite build",
     "build:server": "bun build src/server/index.ts --outdir dist/server --target node",
     "start": "NODE_ENV=production bun dist/server/index.js",
+    "render-build": "bun install && bun run build",
     "preview": "vite preview"
   },
   "dependencies": {
