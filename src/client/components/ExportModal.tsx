@@ -18,6 +18,10 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
   
   if (!isOpen) return null;
   
+  // CANVAS IS ALWAYS 1920x1080 in editor!
+  const CANVAS_WIDTH = 1920;
+  const CANVAS_HEIGHT = 1080;
+  
   const getResolution = () => {
     switch (quality) {
       case '720p': return { width: 1280, height: 720 };
@@ -43,10 +47,10 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     switch (animation.type) {
       case 'fade-in': transform.opacity = animProgress; break;
       case 'fade-out': transform.opacity = 1 - animProgress; break;
-      case 'slide-left': transform.x = -1920 * (1 - animProgress); break;
-      case 'slide-right': transform.x = 1920 * (1 - animProgress); break;
-      case 'slide-up': transform.y = -1080 * (1 - animProgress); break;
-      case 'slide-down': transform.y = 1080 * (1 - animProgress); break;
+      case 'slide-left': transform.x = -CANVAS_WIDTH * (1 - animProgress); break;
+      case 'slide-right': transform.x = CANVAS_WIDTH * (1 - animProgress); break;
+      case 'slide-up': transform.y = -CANVAS_HEIGHT * (1 - animProgress); break;
+      case 'slide-down': transform.y = CANVAS_HEIGHT * (1 - animProgress); break;
       case 'scale-in': transform.scale = animProgress; break;
       case 'scale-out': transform.scale = 1 - animProgress; break;
       case 'rotate': transform.rotation = 360 * animProgress; break;
@@ -56,11 +60,9 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     return transform;
   };
 
-  // FIXED: Image cache to prevent reloading on every frame
   const imageCache = new Map<string, HTMLImageElement>();
 
   const loadImage = (src: string): Promise<HTMLImageElement> => {
-    // Return cached image if exists
     if (imageCache.has(src)) {
       return Promise.resolve(imageCache.get(src)!);
     }
@@ -69,7 +71,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
-        imageCache.set(src, img); // Cache the loaded image
+        imageCache.set(src, img);
         resolve(img);
       };
       img.onerror = () => {
@@ -80,18 +82,14 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     });
   };
 
-  // FIXED: Preload ALL images before export starts
   const preloadAllImages = async (slides: any[]): Promise<void> => {
     const imageUrls = new Set<string>();
     
-    // Collect all image URLs from slides
     for (const slide of slides) {
-      // Background images
       if (slide.backgroundType === 'image' && slide.backgroundImage) {
         imageUrls.add(slide.backgroundImage);
       }
       
-      // Element images
       for (const element of slide.elements || []) {
         if (element.type === 'image' && element.imageUrl) {
           imageUrls.add(element.imageUrl);
@@ -99,13 +97,14 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       }
     }
 
-    // Preload all unique images
     const imageArray = Array.from(imageUrls);
+    if (imageArray.length === 0) return;
+    
     setStatusMessage(`📥 Loading ${imageArray.length} images...`);
     
     const loadPromises = imageArray.map((url, index) => 
       loadImage(url).then(() => {
-        setProgress(Math.floor(((index + 1) / imageArray.length) * 10)); // 0-10% for loading
+        setProgress(Math.floor(((index + 1) / imageArray.length) * 10));
       }).catch(err => {
         console.error('Failed to preload image:', url, err);
       })
@@ -118,46 +117,48 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
   const renderSlide = async (
     ctx: CanvasRenderingContext2D, 
     slide: any, 
-    width: number, 
-    height: number, 
+    exportWidth: number, 
+    exportHeight: number, 
     frameProgress: number, 
     globalAlpha: number = 1, 
-    offsetX: number = 0, 
-    offsetY: number = 0
+    transitionOffsetX: number = 0, 
+    transitionOffsetY: number = 0
   ) => {
-    ctx.save();
-    ctx.globalAlpha = globalAlpha;
-    ctx.translate(offsetX, offsetY);
+    // CRITICAL FIX: Calculate scale factor from CANVAS coordinates to EXPORT resolution
+    const scaleX = exportWidth / CANVAS_WIDTH;
+    const scaleY = exportHeight / CANVAS_HEIGHT;
     
-    // Clear canvas
-    ctx.clearRect(-offsetX, -offsetY, width, height);
+    ctx.save();
+    
+    // Apply export resolution scaling
+    ctx.scale(scaleX, scaleY);
+    
+    // Apply transition offset (in canvas coordinates)
+    ctx.translate(transitionOffsetX, transitionOffsetY);
+    ctx.globalAlpha = globalAlpha;
+    
+    // Clear canvas (in canvas coordinates, will be scaled)
+    ctx.clearRect(-transitionOffsetX, -transitionOffsetY, CANVAS_WIDTH, CANVAS_HEIGHT);
     
     // Render background
     if (slide.backgroundType === 'image' && slide.backgroundImage) {
-      try {
-        // FIXED: Get from cache instead of loading
-        const img = imageCache.get(slide.backgroundImage);
-        if (img) {
-          ctx.drawImage(img, -offsetX, -offsetY, width, height);
-        } else {
-          // Fallback to color if image not in cache
-          ctx.fillStyle = slide.background || '#ffffff';
-          ctx.fillRect(-offsetX, -offsetY, width, height);
-        }
-      } catch (e) {
+      const img = imageCache.get(slide.backgroundImage);
+      if (img) {
+        ctx.drawImage(img, -transitionOffsetX, -transitionOffsetY, CANVAS_WIDTH, CANVAS_HEIGHT);
+      } else {
         ctx.fillStyle = slide.background || '#ffffff';
-        ctx.fillRect(-offsetX, -offsetY, width, height);
+        ctx.fillRect(-transitionOffsetX, -transitionOffsetY, CANVAS_WIDTH, CANVAS_HEIGHT);
       }
     } else if (slide.backgroundType === 'gradient' || slide.background?.includes('gradient')) {
-      const gradient = parseGradient(slide.background, width, height, ctx);
+      const gradient = parseGradient(slide.background, CANVAS_WIDTH, CANVAS_HEIGHT, ctx);
       ctx.fillStyle = gradient || slide.background || '#ffffff';
-      ctx.fillRect(-offsetX, -offsetY, width, height);
+      ctx.fillRect(-transitionOffsetX, -transitionOffsetY, CANVAS_WIDTH, CANVAS_HEIGHT);
     } else {
       ctx.fillStyle = slide.background || '#ffffff';
-      ctx.fillRect(-offsetX, -offsetY, width, height);
+      ctx.fillRect(-transitionOffsetX, -transitionOffsetY, CANVAS_WIDTH, CANVAS_HEIGHT);
     }
     
-    // Render all elements
+    // Render all elements (in CANVAS coordinates - will be auto-scaled by the ctx.scale above)
     for (const element of slide.elements || []) {
       if (!element.visible && element.visible !== undefined) continue;
       
@@ -166,10 +167,13 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       const animTransform = getAnimationTransform(element.animation, frameProgress);
       ctx.globalAlpha = globalAlpha * ((element.opacity || 100) / 100) * animTransform.opacity;
       
+      // CRITICAL: Use element's EXACT canvas coordinates (no scaling)
       const elementX = element.x + animTransform.x;
       const elementY = element.y + animTransform.y;
-      const centerX = elementX + element.width / 2;
-      const centerY = elementY + element.height / 2;
+      const elementWidth = element.width;
+      const elementHeight = element.height;
+      const centerX = elementX + elementWidth / 2;
+      const centerY = elementY + elementHeight / 2;
       
       ctx.translate(centerX, centerY);
       ctx.rotate(((element.rotation || 0) + animTransform.rotation) * Math.PI / 180);
@@ -185,13 +189,14 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       if (element.type === 'text') {
         if (element.backgroundColor && element.backgroundColor !== 'transparent') {
           ctx.fillStyle = element.backgroundColor;
-          roundRect(ctx, -element.width/2, -element.height/2, element.width, element.height, element.borderRadius || 0);
+          roundRect(ctx, -elementWidth/2, -elementHeight/2, elementWidth, elementHeight, element.borderRadius || 0);
           ctx.fill();
         }
         
         const fontStyle = element.fontStyle === 'italic' ? 'italic ' : '';
         const fontWeight = element.fontWeight || (element.bold ? 700 : 400);
-        ctx.font = `${fontStyle}${fontWeight} ${element.fontSize || 32}px ${element.fontFamily || 'Inter, Arial, sans-serif'}`;
+        const fontSize = element.fontSize || 32;
+        ctx.font = `${fontStyle}${fontWeight} ${fontSize}px ${element.fontFamily || 'Inter, Arial, sans-serif'}`;
         ctx.fillStyle = element.color || '#000000';
         ctx.textAlign = element.textAlign || 'center';
         ctx.textBaseline = 'middle';
@@ -202,7 +207,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         let currentLine = '';
         for (const word of words) {
           const testLine = currentLine + (currentLine ? ' ' : '') + word;
-          if (ctx.measureText(testLine).width > element.width - 20 && currentLine) {
+          if (ctx.measureText(testLine).width > elementWidth - 20 && currentLine) {
             lines.push(currentLine);
             currentLine = word;
           } else {
@@ -211,7 +216,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         }
         if (currentLine) lines.push(currentLine);
         
-        const lineHeight = (element.fontSize || 32) * 1.2;
+        const lineHeight = fontSize * 1.2;
         const startY = -(lines.length - 1) * lineHeight / 2;
         lines.forEach((line, i) => ctx.fillText(line, 0, startY + i * lineHeight));
         ctx.filter = 'none';
@@ -220,29 +225,24 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         if (element.blur) ctx.filter = `blur(${element.blur}px)`;
         if (element.shapeType === 'circle') {
           ctx.beginPath();
-          ctx.arc(0, 0, Math.min(element.width, element.height) / 2, 0, Math.PI * 2);
+          ctx.arc(0, 0, Math.min(elementWidth, elementHeight) / 2, 0, Math.PI * 2);
           ctx.fill();
         } else {
-          roundRect(ctx, -element.width/2, -element.height/2, element.width, element.height, element.borderRadius || 0);
+          roundRect(ctx, -elementWidth/2, -elementHeight/2, elementWidth, elementHeight, element.borderRadius || 0);
           ctx.fill();
         }
         ctx.filter = 'none';
       } else if (element.type === 'image' && element.imageUrl) {
-        try {
-          // FIXED: Get from cache instead of loading
-          const img = imageCache.get(element.imageUrl);
-          if (img) {
-            if (element.blur) ctx.filter = `blur(${element.blur}px)`;
-            if (element.borderRadius && element.borderRadius > 0) {
-              ctx.beginPath();
-              roundRect(ctx, -element.width/2, -element.height/2, element.width, element.height, element.borderRadius);
-              ctx.clip();
-            }
-            ctx.drawImage(img, -element.width/2, -element.height/2, element.width, element.height);
-            ctx.filter = 'none';
+        const img = imageCache.get(element.imageUrl);
+        if (img) {
+          if (element.blur) ctx.filter = `blur(${element.blur}px)`;
+          if (element.borderRadius && element.borderRadius > 0) {
+            ctx.beginPath();
+            roundRect(ctx, -elementWidth/2, -elementHeight/2, elementWidth, elementHeight, element.borderRadius);
+            ctx.clip();
           }
-        } catch (e) {
-          console.error('Failed to render cached image:', element.imageUrl);
+          ctx.drawImage(img, -elementWidth/2, -elementHeight/2, elementWidth, elementHeight);
+          ctx.filter = 'none';
         }
       }
       ctx.restore();
@@ -290,14 +290,13 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     setStatusMessage('🎬 Starting export...');
     
     try {
-      // FIXED: Preload ALL images first!
       await preloadAllImages(slides);
       
-      const { width, height } = getResolution();
+      const { width: exportWidth, height: exportHeight } = getResolution();
       
       const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
+      canvas.width = exportWidth;
+      canvas.height = exportHeight;
       const ctx = canvas.getContext('2d', { 
         alpha: false, 
         desynchronized: false,
@@ -307,7 +306,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       
       // Black background base
       ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(0, 0, exportWidth, exportHeight);
       
       const stream = canvas.captureStream(fps);
       const mediaRecorder = new MediaRecorder(stream, {
@@ -327,7 +326,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         a.click();
         URL.revokeObjectURL(url);
         
-        // Clear image cache
         imageCache.clear();
         
         setExporting(false);
@@ -358,33 +356,33 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         
         // Clear entire canvas
         ctx.fillStyle = '#000000';
-        ctx.fillRect(0, 0, width, height);
+        ctx.fillRect(0, 0, exportWidth, exportHeight);
         
         if (isTransition && nextSlide) {
           const transitionProgress = frameProgress;
           
           if (slide.transition === 'fade') {
-            await renderSlide(ctx, slide, width, height, 1, 1 - transitionProgress);
-            await renderSlide(ctx, nextSlide, width, height, 0, transitionProgress);
+            await renderSlide(ctx, slide, exportWidth, exportHeight, 1, 1 - transitionProgress);
+            await renderSlide(ctx, nextSlide, exportWidth, exportHeight, 0, transitionProgress);
           } else if (slide.transition === 'slide-left') {
-            await renderSlide(ctx, slide, width, height, 1, 1, -width * transitionProgress, 0);
-            await renderSlide(ctx, nextSlide, width, height, 0, 1, width * (1 - transitionProgress), 0);
+            await renderSlide(ctx, slide, exportWidth, exportHeight, 1, 1, -CANVAS_WIDTH * transitionProgress, 0);
+            await renderSlide(ctx, nextSlide, exportWidth, exportHeight, 0, 1, CANVAS_WIDTH * (1 - transitionProgress), 0);
           } else if (slide.transition === 'slide-right') {
-            await renderSlide(ctx, slide, width, height, 1, 1, width * transitionProgress, 0);
-            await renderSlide(ctx, nextSlide, width, height, 0, 1, -width * (1 - transitionProgress), 0);
+            await renderSlide(ctx, slide, exportWidth, exportHeight, 1, 1, CANVAS_WIDTH * transitionProgress, 0);
+            await renderSlide(ctx, nextSlide, exportWidth, exportHeight, 0, 1, -CANVAS_WIDTH * (1 - transitionProgress), 0);
           } else if (slide.transition === 'slide-up') {
-            await renderSlide(ctx, slide, width, height, 1, 1, 0, -height * transitionProgress);
-            await renderSlide(ctx, nextSlide, width, height, 0, 1, 0, height * (1 - transitionProgress));
+            await renderSlide(ctx, slide, exportWidth, exportHeight, 1, 1, 0, -CANVAS_HEIGHT * transitionProgress);
+            await renderSlide(ctx, nextSlide, exportWidth, exportHeight, 0, 1, 0, CANVAS_HEIGHT * (1 - transitionProgress));
           } else if (slide.transition === 'slide-down') {
-            await renderSlide(ctx, slide, width, height, 1, 1, 0, height * transitionProgress);
-            await renderSlide(ctx, nextSlide, width, height, 0, 1, 0, -height * (1 - transitionProgress));
+            await renderSlide(ctx, slide, exportWidth, exportHeight, 1, 1, 0, CANVAS_HEIGHT * transitionProgress);
+            await renderSlide(ctx, nextSlide, exportWidth, exportHeight, 0, 1, 0, -CANVAS_HEIGHT * (1 - transitionProgress));
           }
         } else {
-          await renderSlide(ctx, slide, width, height, frameProgress);
+          await renderSlide(ctx, slide, exportWidth, exportHeight, frameProgress);
         }
         
         currentFrame++;
-        const progressPercent = 10 + Math.floor((currentFrame / totalFrames) * 85); // 10-95%
+        const progressPercent = 10 + Math.floor((currentFrame / totalFrames) * 85);
         setProgress(progressPercent);
       };
 
@@ -436,21 +434,20 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
   const exportPNG = async () => {
     setExporting(true);
     setStatusMessage('📸 Exporting PNG images...');
-    const { width, height } = getResolution();
+    const { width: exportWidth, height: exportHeight } = getResolution();
 
     try {
-      // Preload images for PNG export too
       await preloadAllImages(slides);
       
       for (let i = 0; i < slides.length; i++) {
         const slide = slides[i];
         const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = exportWidth;
+        canvas.height = exportHeight;
         const ctx = canvas.getContext('2d');
         if (!ctx) continue;
 
-        await renderSlide(ctx, slide, width, height, 1);
+        await renderSlide(ctx, slide, exportWidth, exportHeight, 1);
 
         canvas.toBlob((blob) => {
           if (blob) {
@@ -566,10 +563,11 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
               </div>
 
               <div className="mb-6 p-3 bg-green-900/30 border border-green-600 rounded">
-                <p className="text-xs text-green-300 mb-1">✅ Image Flickering Fixed:</p>
-                <p className="text-xs text-gray-300">• All images preloaded before export</p>
-                <p className="text-xs text-gray-300">• Cached for instant rendering</p>
-                <p className="text-xs text-gray-300">• Smooth, flicker-free video!</p>
+                <p className="text-xs text-green-300 mb-1">✅ FIXED - Export Quality:</p>
+                <p className="text-xs text-gray-300">• Elements render at correct size</p>
+                <p className="text-xs text-gray-300">• No flickering or overlapping</p>
+                <p className="text-xs text-gray-300">• Perfect scaling for all resolutions</p>
+                <p className="text-xs text-gray-300">• Smooth transitions</p>
               </div>
             </>
           )}
