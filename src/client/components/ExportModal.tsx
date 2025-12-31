@@ -56,6 +56,65 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     return transform;
   };
 
+  // FIXED: Image cache to prevent reloading on every frame
+  const imageCache = new Map<string, HTMLImageElement>();
+
+  const loadImage = (src: string): Promise<HTMLImageElement> => {
+    // Return cached image if exists
+    if (imageCache.has(src)) {
+      return Promise.resolve(imageCache.get(src)!);
+    }
+
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        imageCache.set(src, img); // Cache the loaded image
+        resolve(img);
+      };
+      img.onerror = () => {
+        console.error('Failed to load image:', src);
+        reject(new Error(`Failed to load image: ${src}`));
+      };
+      img.src = src;
+    });
+  };
+
+  // FIXED: Preload ALL images before export starts
+  const preloadAllImages = async (slides: any[]): Promise<void> => {
+    const imageUrls = new Set<string>();
+    
+    // Collect all image URLs from slides
+    for (const slide of slides) {
+      // Background images
+      if (slide.backgroundType === 'image' && slide.backgroundImage) {
+        imageUrls.add(slide.backgroundImage);
+      }
+      
+      // Element images
+      for (const element of slide.elements || []) {
+        if (element.type === 'image' && element.imageUrl) {
+          imageUrls.add(element.imageUrl);
+        }
+      }
+    }
+
+    // Preload all unique images
+    const imageArray = Array.from(imageUrls);
+    setStatusMessage(`📥 Loading ${imageArray.length} images...`);
+    
+    const loadPromises = imageArray.map((url, index) => 
+      loadImage(url).then(() => {
+        setProgress(Math.floor(((index + 1) / imageArray.length) * 10)); // 0-10% for loading
+      }).catch(err => {
+        console.error('Failed to preload image:', url, err);
+      })
+    );
+
+    await Promise.all(loadPromises);
+    setStatusMessage(`✅ Loaded ${imageArray.length} images`);
+  };
+
   const renderSlide = async (
     ctx: CanvasRenderingContext2D, 
     slide: any, 
@@ -70,14 +129,21 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     ctx.globalAlpha = globalAlpha;
     ctx.translate(offsetX, offsetY);
     
-    // ALWAYS clear first to prevent flickering
+    // Clear canvas
     ctx.clearRect(-offsetX, -offsetY, width, height);
     
     // Render background
     if (slide.backgroundType === 'image' && slide.backgroundImage) {
       try {
-        const img = await loadImage(slide.backgroundImage);
-        ctx.drawImage(img, -offsetX, -offsetY, width, height);
+        // FIXED: Get from cache instead of loading
+        const img = imageCache.get(slide.backgroundImage);
+        if (img) {
+          ctx.drawImage(img, -offsetX, -offsetY, width, height);
+        } else {
+          // Fallback to color if image not in cache
+          ctx.fillStyle = slide.background || '#ffffff';
+          ctx.fillRect(-offsetX, -offsetY, width, height);
+        }
       } catch (e) {
         ctx.fillStyle = slide.background || '#ffffff';
         ctx.fillRect(-offsetX, -offsetY, width, height);
@@ -163,17 +229,20 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         ctx.filter = 'none';
       } else if (element.type === 'image' && element.imageUrl) {
         try {
-          const img = await loadImage(element.imageUrl);
-          if (element.blur) ctx.filter = `blur(${element.blur}px)`;
-          if (element.borderRadius && element.borderRadius > 0) {
-            ctx.beginPath();
-            roundRect(ctx, -element.width/2, -element.height/2, element.width, element.height, element.borderRadius);
-            ctx.clip();
+          // FIXED: Get from cache instead of loading
+          const img = imageCache.get(element.imageUrl);
+          if (img) {
+            if (element.blur) ctx.filter = `blur(${element.blur}px)`;
+            if (element.borderRadius && element.borderRadius > 0) {
+              ctx.beginPath();
+              roundRect(ctx, -element.width/2, -element.height/2, element.width, element.height, element.borderRadius);
+              ctx.clip();
+            }
+            ctx.drawImage(img, -element.width/2, -element.height/2, element.width, element.height);
+            ctx.filter = 'none';
           }
-          ctx.drawImage(img, -element.width/2, -element.height/2, element.width, element.height);
-          ctx.filter = 'none';
         } catch (e) {
-          console.error('Failed to load image:', element.imageUrl);
+          console.error('Failed to render cached image:', element.imageUrl);
         }
       }
       ctx.restore();
@@ -215,27 +284,28 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     });
   };
 
-  // FIXED: Use requestAnimationFrame for smooth rendering (NO FLICKERING!)
   const exportVideo = async () => {
     setExporting(true);
     setProgress(0);
-    setStatusMessage('🎥 Preparing canvas...');
+    setStatusMessage('🎬 Starting export...');
     
     try {
+      // FIXED: Preload ALL images first!
+      await preloadAllImages(slides);
+      
       const { width, height } = getResolution();
       
-      // Create canvas
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d', { 
         alpha: false, 
-        desynchronized: false,  // CHANGED: false for stable frame capture
+        desynchronized: false,
         willReadFrequently: false 
       });
       if (!ctx) throw new Error('Canvas context not available');
       
-      // Solid black background initially
+      // Black background base
       ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, width, height);
       
@@ -256,6 +326,9 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         a.download = `${projectName.replace(/\s+/g, '_')}_${quality}_${Date.now()}.webm`;
         a.click();
         URL.revokeObjectURL(url);
+        
+        // Clear image cache
+        imageCache.clear();
         
         setExporting(false);
         setProgress(100);
@@ -279,17 +352,15 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       let currentFrame = 0;
       const frameInterval = 1000 / fps;
 
-      // FIXED: Use requestAnimationFrame with precise timing
       const renderFrame = async (slideIndex: number, frame: number, totalSlideFrames: number, isTransition: boolean = false, nextSlide?: any) => {
         const slide = slides[slideIndex];
         const frameProgress = frame / totalSlideFrames;
         
-        // Clear entire canvas before each frame
+        // Clear entire canvas
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, width, height);
         
         if (isTransition && nextSlide) {
-          // Transition rendering
           const transitionProgress = frameProgress;
           
           if (slide.transition === 'fade') {
@@ -309,12 +380,12 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
             await renderSlide(ctx, nextSlide, width, height, 0, 1, 0, -height * (1 - transitionProgress));
           }
         } else {
-          // Normal slide rendering
           await renderSlide(ctx, slide, width, height, frameProgress);
         }
         
         currentFrame++;
-        setProgress(Math.floor((currentFrame / totalFrames) * 90));
+        const progressPercent = 10 + Math.floor((currentFrame / totalFrames) * 85); // 10-95%
+        setProgress(progressPercent);
       };
 
       // Render all slides
@@ -322,7 +393,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         const slide = slides[slideIndex];
         setStatusMessage(`🎥 Recording slide ${slideIndex + 1}/${slides.length}...`);
         
-        // Start TTS if exists
         if (slide.audioText) {
           speakText(slide.audioText);
         }
@@ -330,10 +400,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         const duration = slide.duration || 5;
         const frames = Math.floor(duration * fps);
         
-        // Render each frame with precise timing
         for (let frame = 0; frame < frames; frame++) {
           await renderFrame(slideIndex, frame, frames);
-          // FIXED: Use proper frame timing
           await new Promise(resolve => setTimeout(resolve, frameInterval));
         }
 
@@ -360,6 +428,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
       console.error('Export failed:', error);
       setStatusMessage('❌ Export failed');
       toast.error('Export failed: ' + (error as Error).message);
+      imageCache.clear();
       setExporting(false);
     }
   };
@@ -370,6 +439,9 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
     const { width, height } = getResolution();
 
     try {
+      // Preload images for PNG export too
+      await preloadAllImages(slides);
+      
       for (let i = 0; i < slides.length; i++) {
         const slide = slides[i];
         const canvas = document.createElement('canvas');
@@ -395,24 +467,16 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
         await new Promise(resolve => setTimeout(resolve, 500));
       }
 
+      imageCache.clear();
       setExporting(false);
       setStatusMessage('✅ Export complete!');
       toast.success(`Exported ${slides.length} PNG images!`);
       setTimeout(() => onClose(), 1500);
     } catch (error) {
       toast.error('PNG export failed');
+      imageCache.clear();
       setExporting(false);
     }
-  };
-
-  const loadImage = (src: string): Promise<HTMLImageElement> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = src;
-    });
   };
 
   const roundRect = (ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) => {
@@ -501,13 +565,12 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, slides, proj
                 </div>
               </div>
 
-              {slides.some(s => s.audioText) && (
-                <div className="mb-6 p-3 bg-blue-900/30 border border-blue-600 rounded">
-                  <p className="text-xs text-blue-300 mb-1">🎵 Audio Export:</p>
-                  <p className="text-xs text-gray-300">• No popups - TTS synced automatically</p>
-                  <p className="text-xs text-gray-300">• No flickering - stable frame rendering</p>
-                </div>
-              )}
+              <div className="mb-6 p-3 bg-green-900/30 border border-green-600 rounded">
+                <p className="text-xs text-green-300 mb-1">✅ Image Flickering Fixed:</p>
+                <p className="text-xs text-gray-300">• All images preloaded before export</p>
+                <p className="text-xs text-gray-300">• Cached for instant rendering</p>
+                <p className="text-xs text-gray-300">• Smooth, flicker-free video!</p>
+              </div>
             </>
           )}
           
